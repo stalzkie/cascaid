@@ -1,0 +1,10 @@
+# Graphify (regenerated via `graphify update .`)
+graphify-out/
+
+# Obsidian local UI state (keep vault config, drop per-device state)
+docs/.obsidian/workspace.json
+docs/.obsidian/workspace-mobile.json
+
+# OS
+.DS_Store
+Thumbs.db
