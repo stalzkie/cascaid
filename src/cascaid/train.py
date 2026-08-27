@@ -18,6 +18,7 @@ import numpy as np
 import torch
 from torch_geometric.loader import DataLoader
 
+from cascaid.benchmarking import save_benchmark
 from cascaid.ingestion.labeling import EPICENTER, label_step
 from cascaid.ingestion.schema import NODE_TYPE_ORDER, NUM_FEATURES
 from cascaid.ingestion.snapshot_builder import build_snapshots, shuffle_edge_index, to_pyg_data
@@ -155,6 +156,7 @@ def main():
     parser.add_argument("--data", type=str, default="data/runs")
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--out", type=str, default="models/pretrained_base.pt")
+    parser.add_argument("--benchmarks", type=str, default="benchmarks")
     args = parser.parse_args()
 
     data_dir = Path(args.data)
@@ -208,6 +210,10 @@ def main():
     print(f"{'Model':<36}{'PR-AUC':>10}{'Detect rate':>14}{'Mean lead (steps)':>20}")
     for name, (auc, lt) in results.items():
         print(f"{name:<36}{auc:>10.3f}{lt['detection_rate']:>14.2f}{lt['mean_lead_time_steps']:>20.2f}")
+
+    benchmark_dir = save_benchmark(results, Path(args.benchmarks))
+    print(f"\nSaved benchmark comparison chart to {benchmark_dir / 'comparison.png'}")
+    print(f"Previous run (if any) archived under {Path(args.benchmarks) / 'archive'}")
 
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
