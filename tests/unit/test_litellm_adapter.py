@@ -2,7 +2,7 @@ import time
 
 import litellm
 
-from cascaid.ingestion.litellm_adapter import litellm_success_to_call_event
+from cascaid.ingestion.litellm_adapter import litellm_failure_to_call_event, litellm_success_to_call_event
 from cascaid.ingestion.runtime_context import track_node
 from cascaid.ingestion.schema import NodeType
 
@@ -55,3 +55,38 @@ def test_converts_real_litellm_success_callback_into_call_event():
     assert event.retried is False
     assert event.latency_ms >= 0
     assert event.token_cost >= 0
+
+
+def test_converts_real_litellm_failure_callback_into_call_event():
+    captured = {}
+
+    def callback(kwargs, completion_response, start_time, end_time):
+        captured["event"] = litellm_failure_to_call_event(
+            kwargs, completion_response, start_time, end_time, run_id="run-1", step=3
+        )
+
+    litellm.failure_callback = [callback]
+    try:
+        with track_node("research_agent"):
+            try:
+                litellm.completion(
+                    model="gpt-4o-mini",
+                    messages=[{"role": "user", "content": "hi"}],
+                    mock_response=Exception("rate limit exceeded"),
+                )
+            except Exception:
+                pass
+        _wait_for(lambda: "event" in captured)
+    finally:
+        litellm.failure_callback = []
+
+    event = captured["event"]
+
+    assert event.run_id == "run-1"
+    assert event.step == 3
+    assert event.caller == "research_agent"
+    assert event.callee == "gpt-4o-mini"
+    assert event.callee_type == NodeType.MODEL_ENDPOINT
+    assert event.error is True
+    assert event.retried is False
+    assert event.latency_ms >= 0

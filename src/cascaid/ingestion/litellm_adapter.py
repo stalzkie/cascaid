@@ -36,3 +36,33 @@ def litellm_success_to_call_event(
         retried=False,
         token_cost=kwargs.get("response_cost") or 0.0,
     )
+
+
+def litellm_failure_to_call_event(
+    kwargs: dict,
+    completion_response,
+    start_time: datetime,
+    end_time: datetime,
+    *,
+    run_id: str,
+    step: int,
+    scenario: str = "production",
+    caller_type: NodeType = NodeType.AGENT,
+) -> CallEvent:
+    # litellm's failure callback fires once per final outcome; it doesn't expose how
+    # many attempts were retried internally before failing, so retried is always False
+    # here -- real retry tracking needs call-attempt correlation across time, out of
+    # scope for a single-event converter.
+    return CallEvent(
+        run_id=run_id,
+        scenario=scenario,
+        step=step,
+        caller=current_node.get(),
+        callee=kwargs["model"],
+        caller_type=caller_type,
+        callee_type=NodeType.MODEL_ENDPOINT,
+        latency_ms=(end_time - start_time).total_seconds() * 1000,
+        error=True,
+        retried=False,
+        token_cost=kwargs.get("response_cost") or 0.0,
+    )
