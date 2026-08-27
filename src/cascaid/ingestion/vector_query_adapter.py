@@ -1,6 +1,9 @@
-"""Times a pgvector query at its call site and produces a CallEvent (PRD section 4.5,
-runtime seam). pgvector has no callback registry like litellm's, so unlike the model-
-endpoint adapter this needs an explicit wrapper around the query call.
+"""Times a vector-store query at its call site and produces a CallEvent (PRD section
+4.5, runtime seam). Covers pgvector, Pinecone, and Weaviate uniformly: none of them
+expose a callback registry like litellm's, so this needs an explicit wrapper around the
+query call rather than a passive hook -- and since the wrapper only measures elapsed
+time and catches exceptions around an arbitrary block, it doesn't care which client
+library is inside it.
 """
 
 from __future__ import annotations
