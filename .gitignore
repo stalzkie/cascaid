@@ -5,6 +5,16 @@ graphify-out/
 docs/.obsidian/workspace.json
 docs/.obsidian/workspace-mobile.json
 
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Generated data & model artifacts (root-level only -- do not shadow src/cascaid/models/)
+/data/
+/models/
+
 # OS
 .DS_Store
 Thumbs.db
