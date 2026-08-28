@@ -16,6 +16,7 @@ import uvicorn
 from cascaid.ingestion.schema import NODE_TYPE_ORDER, NUM_FEATURES
 from cascaid.serving.api import create_app
 from cascaid.serving.risk import load_model
+from cascaid.storage.db import make_session_factory
 
 IN_DIM = NUM_FEATURES + len(NODE_TYPE_ORDER)
 
@@ -27,12 +28,19 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--hidden", type=int, default=32)
     parser.add_argument("--host", type=str, default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument(
+        "--database-url",
+        type=str,
+        default=None,
+        help="If set, persists every served risk score to this Postgres/SQLAlchemy URL (PRD 5.2 Storage).",
+    )
     return parser.parse_args(argv)
 
 
 def build_app(args: argparse.Namespace):
     model = load_model(args.model, in_dim=IN_DIM, edge_dim=NUM_FEATURES, hidden=args.hidden)
-    return create_app(model=model, store_dir=args.store)
+    session_factory = make_session_factory(args.database_url) if args.database_url else None
+    return create_app(model=model, store_dir=args.store, session_factory=session_factory)
 
 
 def build_app_from_argv(argv: list[str] | None = None):

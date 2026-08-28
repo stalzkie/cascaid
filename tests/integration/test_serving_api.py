@@ -4,11 +4,15 @@ graph store on disk, exercised through TestClient (PRD 5.2 Model Serving)."""
 import pytest
 import torch
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.pool import StaticPool
 from torch_geometric.data import Data
 
 from cascaid.ingestion.graph_store import save_snapshot
 from cascaid.models.gnn import CascadeGNN
 from cascaid.serving.api import create_app
+from cascaid.storage.repository import get_score_history, init_db
 
 IN_DIM = 6
 EDGE_DIM = 4
@@ -66,3 +70,23 @@ def test_risk_endpoint_404_for_unknown_run(tmp_path):
     response = client.get("/risk/no-such-run")
 
     assert response.status_code == 404
+
+
+@pytest.mark.integration
+def test_risk_endpoint_persists_scores_when_session_factory_given(tmp_path):
+    torch.manual_seed(0)
+    save_snapshot(_snapshot("run-1", step=0), tmp_path)
+    model = CascadeGNN(in_dim=IN_DIM, edge_dim=EDGE_DIM, hidden=8)
+    engine = create_engine("sqlite:///:memory:", poolclass=StaticPool, connect_args={"check_same_thread": False})
+    init_db(engine)
+    session_factory = sessionmaker(bind=engine)
+    app = create_app(model=model, store_dir=tmp_path, session_factory=session_factory)
+    client = TestClient(app)
+
+    response = client.get("/risk/run-1")
+    assert response.status_code == 200
+
+    with session_factory() as session:
+        history = get_score_history(session, run_id="run-1")
+    assert {row.node_name for row in history} == {"a", "b", "c"}
+    assert {row.risk_score for row in history} == set(response.json()["scores"].values())
