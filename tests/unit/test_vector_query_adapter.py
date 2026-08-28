@@ -2,8 +2,8 @@ import time
 
 import pytest
 
-from cascaid.ingestion.pgvector_adapter import observe_vector_query
 from cascaid.ingestion.schema import NodeType
+from cascaid.ingestion.vector_query_adapter import observe_vector_query
 
 
 def test_observe_vector_query_records_success():
