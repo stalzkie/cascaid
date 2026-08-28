@@ -33,13 +33,7 @@ services:
       - data:/app/data
       - models:/app/models
       - graph-store:/app/data/graph_store
-    command: >
-      sh -c "
-        python -m cascaid_demo.run_scenarios --runs-per-scenario 15 --steps 30 --out data/runs &&
-        python -m cascaid.train --data data/runs --epochs 15 --out models/pretrained_base.pt &&
-        python -m cascaid_demo.seed_store --data data/runs --model models/pretrained_base.pt
-          --store data/graph_store --database-url $$DATABASE_URL
-      "
+    command: sh -c "python -m cascaid_demo.run_scenarios --runs-per-scenario 15 --steps 30 --out data/runs && python -m cascaid.train --data data/runs --epochs 15 --out models/pretrained_base.pt && python -m cascaid_demo.seed_store --data data/runs --model models/pretrained_base.pt --store data/graph_store --database-url $$DATABASE_URL"
 
   serve:
     build: .
@@ -52,9 +46,7 @@ services:
     volumes:
       - models:/app/models
       - graph-store:/app/data/graph_store
-    command: >
-      python -m cascaid.serve --model models/pretrained_base.pt --store data/graph_store
-        --database-url $$DATABASE_URL --host 0.0.0.0 --port 8000
+    command: python -m cascaid.serve --model models/pretrained_base.pt --store data/graph_store --database-url $$DATABASE_URL --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
 
@@ -68,9 +60,7 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     volumes:
       - graph-store:/app/data/graph_store
-    command: >
-      python -m cascaid.dashboard.serve --database-url $$DATABASE_URL
-        --store data/graph_store --host 0.0.0.0 --port 8001
+    command: python -m cascaid.dashboard.serve --database-url $$DATABASE_URL --store data/graph_store --host 0.0.0.0 --port 8001
     ports:
       - "8001:8001"
 
