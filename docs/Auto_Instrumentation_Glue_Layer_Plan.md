@@ -76,11 +76,19 @@ Behind that one line, at process start (before the customer's app module
 loads):
 
 1. Run `detect_stack()` (already built) to decide which patches to apply.
-2. **LangGraph**: monkey-patch `StateGraph.compile` so every compiled graph
-   is automatically run through `extract_static_topology()` and registered,
-   and monkey-patch the compiled graph's node-execution path so each node
-   call is automatically wrapped in `track_node(name)` — the customer never
-   calls this themselves.
+2. **LangGraph** (built 2026-08-28, corrected from the original design below):
+   `StateGraph.add_node` is patched — not LangGraph's internal Pregel
+   dispatch loop — to wrap each node's function in `track_node(name)` at
+   graph-construction time. A smaller, more targeted seam than intercepting
+   internal execution, and far less coupled to a specific LangGraph version.
+   `StateGraph.compile` is patched separately to extract topology once via
+   `extract_static_topology()` and wrap the compiled graph's
+   `invoke`/`ainvoke` in a fresh `track_step` per call, so `step` keeps
+   meaning "one top-level invocation" — matching what the GNN was actually
+   trained on (see `runtime_context.py`'s `current_run_id`/`current_step`,
+   sibling to `current_node`). Fragmenting one invocation across several
+   call-indexed steps would have been a train/serve distribution mismatch,
+   not just an integration shortcut.
 3. **LiteLLM**: **append** to `litellm.success_callback` /
    `litellm.failure_callback` rather than overwrite them — a customer who
    already has Langfuse/LangSmith registered there must keep getting their
@@ -97,7 +105,14 @@ loads):
    users on that stack, rather than pretending it's automatic when it isn't.
 5. Stream resulting `CallEvent`s into the existing Graph Store /
    `snapshot_builder.py` path, pointed at the local Cascaid stack instead of
-   demo data.
+   demo data. **Still open** (2026-08-28): `cascaid run` (built) currently
+   writes topology + `CallEvent`s as JSON lines to a local file
+   (`CASCAID_EVENTS_PATH`, default `data/live/<run_id>.jsonl`) via
+   `cascaid/_instrument_bootstrap.py` — proven end-to-end against a real
+   subprocess (`tests/e2e/test_run_instrumented.py`), but nothing yet reads
+   that file into the Graph Store/Postgres, so a beta tester can observe
+   their pipeline but can't see it in the dashboard yet. That wiring is not
+   done.
 
 ## Packaging work needed to make "one command" literal
 
@@ -136,23 +151,32 @@ already described in the roadmap discussion applies unchanged.
 
 ## Suggested build order
 
-1. `cascaid.cli` module + `[project.scripts]` entry, wrapping *existing*
-   commands (`demo`, `serve`, `dashboard`) under one binary — ships
-   immediately, zero new instrumentation risk, and alone already improves
-   the install story.
-2. Wire the LiteLLM adapter for real: auto-register (appending, not
-   replacing) callbacks when `cascaid run` starts and LiteLLM is detected.
-   Lowest-risk patch target since it uses LiteLLM's own callback API rather
-   than monkey-patching internals.
-3. Wire the LangGraph adapter for real: patch `StateGraph.compile` +
-   node-execution wrapping. Prove this against Cascaid's own demo pipeline
-   first (replace the fake `recorder.log` there with the real adapters —
-   this alone would catch integration bugs the adapters' isolated unit
-   tests can't).
+1. ✅ **Done.** `cascaid.cli` module + `[project.scripts]` entry, wrapping
+   *existing* commands (`demo`, `serve`, `dashboard`) under one binary.
+   PR #25.
+2. ✅ **Done.** Wire the LiteLLM adapter for real:
+   `register_litellm_callbacks(sink)` appends (never replaces) to
+   `litellm.success_callback`/`failure_callback`; added
+   `current_run_id`/`current_step` to `runtime_context.py`. PR #26.
+3. ✅ **Done** (2026-08-28), all three parts in one pass:
+   - `instrument_langgraph(topology_sink)` — the `add_node`/`compile` patch
+     described above.
+   - `tests/integration/test_instrumentation_integration.py` — the
+     publish-blocking proof, against a dedicated real pipeline (not
+     `run_scenarios.py`, see the superseded decision above).
+   - `cascaid run -- <command>` — a real subprocess launcher
+     (`cascaid/_instrument_bootstrap.py` + a generated `sitecustomize.py`
+     prepended to `PYTHONPATH`, the same trick `ddtrace-run` uses), proven
+     against an actually-launched subprocess in
+     `tests/e2e/test_run_instrumented.py`. Events currently land in a local
+     JSON-lines file, not the Graph Store — see "Still open" above.
 4. Vector DB auto-patch for Pinecone/Weaviate (pgvector stays manual per
-   above).
+   above). Not started.
 5. Beta packaging: publish, write the four-line golden-path README section
-   above to replace the current dev-only `uv sync` instructions.
+   above to replace the current dev-only `uv sync` instructions. Not
+   started — and per the "Still open" note above, `cascaid run`'s events
+   need to reach the Graph Store before this is genuinely beta-ready, not
+   just publishable.
 
 ## Decisions (2026-08-28)
 
@@ -162,9 +186,15 @@ already described in the roadmap discussion applies unchanged.
   anyone outside can run `pip install cascaid`, since there's no private
   gate left to catch a broken patch first.
 - **Migrate the demo pipeline onto the real adapters before recruiting any
-  beta tester.** `cascaid_demo/pipeline.py`'s fake recorder gets replaced
+  beta tester.** ~~`cascaid_demo/pipeline.py`'s fake recorder gets replaced
   with `litellm_adapter`/`langgraph_adapter`/`runtime_context`/
-  `vector_query_adapter` (build-order step 3) and proven working end-to-end
-  first. Combined with the public-PyPI decision above, this migration is
-  now the load-bearing gate before publishing at all, not an optional
-  hardening pass — publish is blocked on it.
+  `vector_query_adapter`~~ **Superseded 2026-08-28, see step 3 below**: the
+  demo's fault injection is precise `rng`-controlled statistics validated
+  against the 0.90 PR-AUC number — routing it through real LiteLLM dispatch
+  would risk that number (no controllable latency/error/cost) for no
+  integration-correctness benefit. `cascaid_demo/run_scenarios.py` and its
+  mocks are untouched, permanently, not just for this pass. The
+  publish-blocking gate is satisfied instead by a dedicated integration test
+  (`tests/integration/test_instrumentation_integration.py`) proving the real
+  adapters work together against a real (if small) LangGraph+LiteLLM
+  pipeline built just for that purpose.

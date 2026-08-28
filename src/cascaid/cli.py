@@ -10,7 +10,11 @@ tester gets the same local demo experience without Docker.
 from __future__ import annotations
 
 import argparse
+import os
+import subprocess
 import sys
+import tempfile
+import uuid
 from pathlib import Path
 
 import cascaid.dashboard.serve as dashboard_cli
@@ -19,7 +23,9 @@ import cascaid.train as train_cli
 import cascaid_demo.run_scenarios as run_scenarios_cli
 import cascaid_demo.seed_store as seed_store_cli
 
-SUBCOMMANDS = ("serve", "train", "dashboard", "demo")
+SUBCOMMANDS = ("serve", "train", "dashboard", "demo", "run")
+
+_SITECUSTOMIZE_SOURCE = "from cascaid._instrument_bootstrap import bootstrap\nbootstrap()\n"
 
 
 def _delegate(prog: str, module_main, rest: list[str]) -> None:
@@ -64,6 +70,44 @@ def _run_demo(rest: list[str]) -> None:
     print(f"\nDemo ready -- database: {database_url}  graph store: {args.store}")
 
 
+def _run_instrumented(rest: list[str]) -> None:
+    """`cascaid run -- <command>`: launches the customer's own pipeline as a
+    subprocess with instrumentation already applied before its code runs, using
+    the same sitecustomize-injection trick ddtrace-run uses (a directory holding a
+    tiny sitecustomize.py prepended to PYTHONPATH -- Python's site module imports
+    it automatically at interpreter startup, ahead of anything the target command
+    does). This is what makes zero-code-change instrumentation (PRD 4.1) real: no
+    wrapper the customer has to call, no line they have to add to their own app.
+    """
+    parser = argparse.ArgumentParser(prog="cascaid run")
+    parser.add_argument("--events", type=str, default=None)
+    parser.add_argument("command", nargs=argparse.REMAINDER)
+    args = parser.parse_args(rest)
+
+    command = args.command[1:] if args.command[:1] == ["--"] else args.command
+    if not command:
+        print("usage: cascaid run [--events PATH] -- <command> [args...]", file=sys.stderr)
+        raise SystemExit(2)
+
+    run_id = str(uuid.uuid4())
+    events_path = args.events or f"data/live/{run_id}.jsonl"
+    Path(events_path).parent.mkdir(parents=True, exist_ok=True)
+
+    bootstrap_dir = Path(tempfile.mkdtemp(prefix="cascaid-sitecustomize-"))
+    (bootstrap_dir / "sitecustomize.py").write_text(_SITECUSTOMIZE_SOURCE, encoding="utf-8")
+
+    env = dict(os.environ)
+    env["CASCAID_RUN_ID"] = run_id
+    env["CASCAID_EVENTS_PATH"] = events_path
+    existing_pythonpath = env.get("PYTHONPATH", "")
+    env["PYTHONPATH"] = str(bootstrap_dir) + (os.pathsep + existing_pythonpath if existing_pythonpath else "")
+
+    print(f"cascaid run: instrumenting `{' '.join(command)}` (run_id={run_id})")
+    print(f"cascaid run: events -> {events_path}")
+    result = subprocess.run(command, env=env)
+    raise SystemExit(result.returncode)
+
+
 def main(argv: list[str] | None = None) -> None:
     argv = list(argv if argv is not None else sys.argv[1:])
     if not argv or argv[0] not in SUBCOMMANDS:
@@ -79,6 +123,8 @@ def main(argv: list[str] | None = None) -> None:
         _delegate("dashboard", dashboard_cli.main, rest)
     elif subcommand == "demo":
         _run_demo(rest)
+    elif subcommand == "run":
+        _run_instrumented(rest)
 
 
 if __name__ == "__main__":
