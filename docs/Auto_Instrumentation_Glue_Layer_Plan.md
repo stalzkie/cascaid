@@ -210,16 +210,18 @@ already described in the roadmap discussion applies unchanged.
    automatically when detected.
 5a. ✅ **Done** (2026-08-28). Close the persistence gap: `cascaid ingest`,
     see above.
-5b. ✅ **Mostly done** (2026-08-28). Apache-2.0 `LICENSE` added (there was
+5b. ✅ **Done** (2026-08-28). Apache-2.0 `LICENSE` added (there was
     none — a real gap against the PRD's "open-source" framing).
     `pyproject.toml` given real PyPI metadata (readme/license/classifiers/
     urls). README rewritten to lead with the golden path. Verified: `uv
     build` succeeds, `twine check dist/*` passes, built wheel installs
-    clean into a fresh venv with a working `cascaid` command. **Not done,
-    deliberately**: the actual `twine upload`/`uv publish` — needs real
-    PyPI credentials and is a public, effectively-irreversible action
-    requiring explicit human sign-off, not something to run unilaterally.
-    That one step is all that's left before this plan is fully closed out.
+    clean into a fresh venv with a working `cascaid` command.
+    `cascaid==0.1.0` published to public PyPI (human-run, via a one-time
+    wizard script — PyPI 2FA + account-scoped token + `uv publish`, then
+    the account-wide token was rotated/removed). `pypi.org/project/cascaid`
+    is live. Plan fully closed out: the beta golden path (`pipx install
+    cascaid` → `cascaid demo` → `docker compose up` → `cascaid run --
+    ...` → `cascaid ingest ...`) is real end-to-end.
 
 ## Decisions (2026-08-28)
 
