@@ -100,5 +100,9 @@ jobs:
           docker compose up -d serve dashboard
           timeout 120 sh -c 'until curl -sf http://localhost:8000/health; do sleep 2; done'
           timeout 120 sh -c 'until curl -sf http://localhost:8001/health; do sleep 2; done'
+      - if: failure()
+        run: |
+          docker compose ps -a
+          docker compose logs
       - if: always()
         run: docker compose down -v
