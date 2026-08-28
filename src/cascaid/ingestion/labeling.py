@@ -6,21 +6,26 @@ predict: risk is elevated but the failure hasn't fully landed yet. Steps at
 or after cascade_step describe an already-manifested failure -- not the
 prediction target -- so they're marked unusable rather than labeled.
 
-Only the epicenter node and its direct upstream neighbors (nodes that
-depend on it, i.e. its predecessors in the call graph) are labeled positive.
-Every other node's own features never move during the fault, so correctly
-labeling them requires reading a neighbor's state through graph structure --
-this is what the GNN-vs-flattened-baseline and real-vs-shuffled-adjacency
-comparisons in metrics.py are built to detect.
+Only a scenario's epicenter node(s) and their direct upstream neighbors
+(nodes that depend on them, i.e. their predecessors in the call graph) are
+labeled positive -- a scenario can have more than one simultaneous epicenter
+(see EPICENTER["compound_cascade"]). Every other node's own features never
+move during the fault, so correctly labeling them requires reading a
+neighbor's state through graph structure -- this is what the
+GNN-vs-flattened-baseline and real-vs-shuffled-adjacency comparisons in
+metrics.py are built to detect.
 """
 
 from __future__ import annotations
 
 import networkx as nx
 
-EPICENTER = {
-    "rate_limit_model": "primary_model",
-    "vector_db_degradation": "vector_store",
+EPICENTER: dict[str, tuple[str, ...]] = {
+    "rate_limit_model": ("primary_model",),
+    "vector_db_degradation": ("vector_store",),
+    "cost_spike_model": ("primary_model",),
+    "vector_store_flaky": ("vector_store",),
+    "compound_cascade": ("primary_model", "vector_store"),
 }
 
 # Below this fraction of ramp progress, fault_progress() is close enough to
@@ -33,10 +38,11 @@ RAMP_AMBIGUITY_CUTOFF = 0.5
 
 
 def affected_nodes(scenario: str, static_graph: nx.DiGraph) -> set[str]:
-    epicenter = EPICENTER.get(scenario)
-    if epicenter is None:
-        return set()
-    return {epicenter} | set(static_graph.predecessors(epicenter))
+    epicenters = EPICENTER.get(scenario, ())
+    affected: set[str] = set()
+    for epicenter in epicenters:
+        affected |= {epicenter} | set(static_graph.predecessors(epicenter))
+    return affected
 
 
 def label_step(

@@ -37,3 +37,10 @@ def latest_snapshot(store_dir: str | Path, run_id: str) -> Data | None:
     if not paths:
         return None
     return load_snapshot(paths[-1])
+
+
+def list_runs(store_dir: str | Path) -> list[str]:
+    store_path = Path(store_dir)
+    if not store_path.exists():
+        return []
+    return sorted(p.name for p in store_path.iterdir() if p.is_dir())

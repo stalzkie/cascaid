@@ -121,10 +121,10 @@ def build_traces(manifest: list[dict], run_ids: set[str], node_scores: dict) -> 
     for meta in manifest:
         if meta["run_id"] not in run_ids or meta["fault_onset_step"] is None:
             continue
-        epicenter = EPICENTER[meta["scenario"]]
+        epicenters = EPICENTER[meta["scenario"]]
         steps_scores = node_scores.get(meta["run_id"], {})
         steps = sorted(steps_scores.keys())
-        scores = [steps_scores[s].get(epicenter, 0.0) for s in steps]
+        scores = [max(steps_scores[s].get(e, 0.0) for e in epicenters) for s in steps]
         traces.append(
             RunTrace(
                 run_id=meta["run_id"],

@@ -60,9 +60,12 @@ def test_dashboard_cli_serves_pipeline_and_track_record(tmp_path, monkeypatch):
     app = dashboard_cli.build_app_from_argv()
     client = TestClient(app)
 
+    runs_response = client.get("/runs")
     pipeline_response = client.get("/pipeline/dashboard-e2e-run")
     track_record_response = client.get("/track-record/dashboard-e2e-run")
 
+    assert runs_response.status_code == 200
+    assert runs_response.json() == {"run_ids": ["dashboard-e2e-run"]}
     assert pipeline_response.status_code == 200
     assert {n["name"] for n in pipeline_response.json()["nodes"]} == set(STATIC_NODES.keys())
     assert track_record_response.status_code == 200

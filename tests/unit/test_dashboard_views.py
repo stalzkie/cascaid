@@ -5,7 +5,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from torch_geometric.data import Data
 
-from cascaid.dashboard.views import pipeline_view, track_record_view
+from cascaid.dashboard.views import list_runs_view, pipeline_view, track_record_view
 from cascaid.ingestion.graph_store import save_snapshot
 from cascaid.storage.repository import init_db, record_incident, record_scores
 
@@ -25,6 +25,13 @@ def _session() -> Session:
     engine = create_engine("sqlite:///:memory:")
     init_db(engine)
     return Session(engine)
+
+
+def test_list_runs_view_returns_known_run_ids(tmp_path):
+    save_snapshot(_snapshot("run-b", step=0), tmp_path)
+    save_snapshot(_snapshot("run-a", step=0), tmp_path)
+
+    assert list_runs_view(tmp_path) == ["run-a", "run-b"]
 
 
 def test_pipeline_view_returns_none_when_no_snapshot_persisted(tmp_path):

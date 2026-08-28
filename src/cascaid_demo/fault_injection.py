@@ -7,7 +7,14 @@ from dataclasses import dataclass
 
 import numpy as np
 
-SCENARIOS = ["baseline", "rate_limit_model", "vector_db_degradation"]
+SCENARIOS = [
+    "baseline",
+    "rate_limit_model",
+    "vector_db_degradation",
+    "cost_spike_model",
+    "vector_store_flaky",
+    "compound_cascade",
+]
 
 
 @dataclass
