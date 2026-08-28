@@ -27,3 +27,10 @@ def test_to_pyg_data_carries_node_types_alongside_node_order():
 
     assert data.node_order == ["agent", "store"]
     assert data.node_types == ["agent", "vector_store"]
+
+
+def test_to_pyg_data_carries_directed_edges_by_node_name():
+    snapshots = build_snapshots(NODES, EDGES, [_event(0)])
+    data = to_pyg_data(snapshots[0])
+
+    assert data.edges == [("agent", "store")]
