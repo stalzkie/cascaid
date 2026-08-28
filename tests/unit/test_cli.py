@@ -70,6 +70,21 @@ def test_main_dispatches_dashboard_with_passthrough_args_as_argv(monkeypatch):
     assert captured["argv"] == ["dashboard", "--store", "data/graph_store"]
 
 
+def test_main_dispatches_ingest_with_passthrough_args_as_argv(monkeypatch):
+    captured: dict[str, list[str]] = {}
+
+    def fake_main():
+        import sys as sys_
+
+        captured["argv"] = list(sys_.argv)
+
+    monkeypatch.setattr(cli.ingest_cli, "main", fake_main)
+
+    cli.main(["ingest", "--events", "data/live/run-1.jsonl", "--store", "data/graph_store"])
+
+    assert captured["argv"] == ["ingest", "--events", "data/live/run-1.jsonl", "--store", "data/graph_store"]
+
+
 def test_main_dispatches_run_by_launching_the_target_as_an_instrumented_subprocess(monkeypatch, tmp_path):
     captured = {}
 

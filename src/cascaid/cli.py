@@ -18,12 +18,13 @@ import uuid
 from pathlib import Path
 
 import cascaid.dashboard.serve as dashboard_cli
+import cascaid.ingest as ingest_cli
 import cascaid.serve as serve_cli
 import cascaid.train as train_cli
 import cascaid_demo.run_scenarios as run_scenarios_cli
 import cascaid_demo.seed_store as seed_store_cli
 
-SUBCOMMANDS = ("serve", "train", "dashboard", "demo", "run")
+SUBCOMMANDS = ("serve", "train", "dashboard", "demo", "run", "ingest")
 
 _SITECUSTOMIZE_SOURCE = "from cascaid._instrument_bootstrap import bootstrap\nbootstrap()\n"
 
@@ -125,6 +126,8 @@ def main(argv: list[str] | None = None) -> None:
         _run_demo(rest)
     elif subcommand == "run":
         _run_instrumented(rest)
+    elif subcommand == "ingest":
+        _delegate("ingest", ingest_cli.main, rest)
 
 
 if __name__ == "__main__":

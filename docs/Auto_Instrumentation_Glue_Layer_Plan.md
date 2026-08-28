@@ -125,14 +125,23 @@ loads):
    pretending it's automatic when it isn't.
 5. Stream resulting `CallEvent`s into the existing Graph Store /
    `snapshot_builder.py` path, pointed at the local Cascaid stack instead of
-   demo data. **Still open** (2026-08-28): `cascaid run` (built) currently
-   writes topology + `CallEvent`s as JSON lines to a local file
-   (`CASCAID_EVENTS_PATH`, default `data/live/<run_id>.jsonl`) via
-   `cascaid/_instrument_bootstrap.py` — proven end-to-end against a real
-   subprocess (`tests/e2e/test_run_instrumented.py`), but nothing yet reads
-   that file into the Graph Store/Postgres, so a beta tester can observe
-   their pipeline but can't see it in the dashboard yet. That wiring is not
-   done.
+   demo data. **Done** (2026-08-28): `cascaid ingest --events <path> --store
+   <dir> [--model ... --database-url ...] [--follow]`
+   (`src/cascaid/ingest.py`) reads `cascaid run`'s JSON-lines log and reuses
+   the exact same functions `seed_store.py` already uses for demo data
+   (`build_snapshots`, `to_pyg_data`, `save_snapshot`, `predict_risk`,
+   `record_scores`) — just fed from a live event log instead of a synthetic
+   corpus. Runs as its own process, deliberately separate from the
+   customer's instrumented app: loading torch/the model happens here, not
+   inside their live request path, same reasoning as everywhere else this
+   plan avoided touching the customer's process more than necessary.
+   Snapshot building recomputes from the full accumulated event history on
+   every call rather than a separate incremental algorithm — simpler and
+   provably identical to the already-validated batch path, at the cost of
+   re-processing older events each `--follow` tick (fine for a beta pass).
+   Proven end-to-end in `tests/e2e/test_ingest_cli.py`, sourcing its input
+   from the real bootstrap sinks driving a real LangGraph+LiteLLM pipeline,
+   through to Graph Store snapshots and queryable score history.
 
 ## Packaging work needed to make "one command" literal
 
@@ -150,10 +159,14 @@ loads):
 ## Beta tester's actual golden path once this lands
 
 ```
-pipx install cascaid          # or: uv tool install cascaid
-cascaid demo                  # zero-risk first contact, synthetic pipeline (PRD 4.2)
-docker compose up             # stand up the local Cascaid stack (already works today)
-cascaid run -- python app.py  # point it at their real pipeline, no code changes
+pipx install cascaid                              # or: uv tool install cascaid
+cascaid demo                                       # zero-risk first contact, synthetic pipeline (PRD 4.2)
+docker compose up                                  # stand up the local Cascaid stack (already works today)
+cascaid run -- python app.py                       # point it at their real pipeline, no code changes
+cascaid ingest --events data/live/<run_id>.jsonl \
+  --model models/pretrained_base.pt \
+  --database-url <same one docker compose uses> \
+  --follow                                         # gets it showing up in the dashboard
 ```
 
 Then the existing UI flow (observe-only → dashboard → opt-in alerting)
@@ -195,11 +208,11 @@ already described in the roadmap discussion applies unchanged.
    as dev-only dependencies (mirrors `litellm`'s pattern). Wired into
    `cascaid/_instrument_bootstrap.py` so `cascaid run` applies them
    automatically when detected.
-5. Beta packaging: publish, write the four-line golden-path README section
-   above to replace the current dev-only `uv sync` instructions. Not
-   started — and per the "Still open" note above, `cascaid run`'s events
-   need to reach the Graph Store before this is genuinely beta-ready, not
-   just publishable.
+5a. ✅ **Done** (2026-08-28). Close the persistence gap: `cascaid ingest`,
+    see above.
+5b. Beta packaging: publish to PyPI, write the golden-path README section
+    below to replace the current dev-only `uv sync` instructions. Not
+    started — this is the only remaining item.
 
 ## Decisions (2026-08-28)
 
