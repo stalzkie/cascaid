@@ -13,6 +13,8 @@ import cascaid.train as train_cli
 import cascaid_demo.run_scenarios as run_scenarios_cli
 from cascaid.ingestion.graph_store import save_snapshot
 from cascaid.ingestion.snapshot_builder import build_snapshots, to_pyg_data
+from cascaid.storage.db import get_engine, make_session_factory
+from cascaid.storage.repository import get_score_history, init_db
 from cascaid_demo.fault_injection import make_scenario
 from cascaid_demo.mock_llm_gateway import ModelGateway
 from cascaid_demo.mock_vector_db import VectorStore
@@ -63,7 +65,14 @@ def test_serve_cli_serves_risk_for_a_persisted_snapshot(tmp_path, monkeypatch):
     for snap in snapshots:
         save_snapshot(to_pyg_data(snap), store_dir)
 
-    monkeypatch.setattr(sys, "argv", ["serve", "--model", str(model_path), "--store", str(store_dir)])
+    db_path = tmp_path / "cascaid.db"
+    database_url = f"sqlite:///{db_path}"
+    init_db(get_engine(database_url))
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["serve", "--model", str(model_path), "--store", str(store_dir), "--database-url", database_url],
+    )
     app = serve_cli.build_app_from_argv()
     client = TestClient(app)
 
@@ -73,3 +82,7 @@ def test_serve_cli_serves_risk_for_a_persisted_snapshot(tmp_path, monkeypatch):
     body = response.json()
     assert body["step"] == TOTAL_STEPS - 1
     assert set(body["scores"].keys()) == set(STATIC_NODES.keys())
+
+    with make_session_factory(database_url)() as session:
+        history = get_score_history(session, run_id="serve-e2e-run")
+    assert {row.node_name for row in history} == set(STATIC_NODES.keys())
