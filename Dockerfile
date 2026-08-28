@@ -12,6 +12,10 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
+# README.md/LICENSE required at build time too -- pyproject.toml's readme/
+# license-files fields make hatchling validate they exist before installing
+# the project itself (not just its dependencies).
+COPY README.md LICENSE ./
 COPY src ./src
 RUN uv sync --frozen --no-dev
 
