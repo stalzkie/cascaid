@@ -165,4 +165,5 @@ def to_pyg_data(
     data.scenario = snapshot.scenario
     data.step = snapshot.step
     data.node_order = snapshot.node_order
+    data.node_types = [NODE_TYPE_ORDER[int(row.argmax())].value for row in snapshot.node_type_onehot]
     return data
