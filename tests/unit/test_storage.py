@@ -7,6 +7,7 @@ from cascaid.storage.repository import (
     get_alert_history,
     get_config,
     get_incidents,
+    get_latest_scores,
     get_score_history,
     init_db,
     record_alert,
@@ -72,6 +73,16 @@ def test_record_and_get_alert_history_round_trip():
     assert len(alerts) == 1
     assert alerts[0].risk_score == 0.95
     assert alerts[0].channel == "webhook"
+
+
+def test_get_latest_scores_returns_most_recent_score_per_node():
+    session = _session()
+    record_scores(session, run_id="run-1", step=0, scores={"agent": 0.1, "model": 0.2})
+    record_scores(session, run_id="run-1", step=1, scores={"agent": 0.4})
+
+    latest = get_latest_scores(session, run_id="run-1")
+
+    assert latest == {"agent": 0.4, "model": 0.2}
 
 
 def test_get_config_returns_default_when_unset():

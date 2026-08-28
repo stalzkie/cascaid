@@ -30,6 +30,13 @@ def get_score_history(session: Session, run_id: str, node_name: str | None = Non
     return list(session.scalars(stmt.order_by(ScoreHistory.step)))
 
 
+def get_latest_scores(session: Session, run_id: str) -> dict[str, float]:
+    latest: dict[str, float] = {}
+    for row in get_score_history(session, run_id):
+        latest[row.node_name] = row.risk_score
+    return latest
+
+
 def record_incident(
     session: Session, run_id: str, node_name: str, incident_type: str, occurred_at: datetime, source: str
 ) -> IncidentLabel:
