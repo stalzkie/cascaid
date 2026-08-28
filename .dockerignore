@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.git/
+data/
+models/
+benchmarks/
+graphify-out/
+frontend/node_modules/
+frontend/dist/
+docs/

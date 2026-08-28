@@ -13,8 +13,8 @@ import cascaid.train as train_cli
 import cascaid_demo.run_scenarios as run_scenarios_cli
 from cascaid.ingestion.graph_store import save_snapshot
 from cascaid.ingestion.snapshot_builder import build_snapshots, to_pyg_data
-from cascaid.storage.db import get_engine, make_session_factory
-from cascaid.storage.repository import get_score_history, init_db
+from cascaid.storage.db import make_session_factory
+from cascaid.storage.repository import get_score_history
 from cascaid_demo.fault_injection import make_scenario
 from cascaid_demo.mock_llm_gateway import ModelGateway
 from cascaid_demo.mock_vector_db import VectorStore
@@ -67,7 +67,8 @@ def test_serve_cli_serves_risk_for_a_persisted_snapshot(tmp_path, monkeypatch):
 
     db_path = tmp_path / "cascaid.db"
     database_url = f"sqlite:///{db_path}"
-    init_db(get_engine(database_url))
+    # No init_db() call here on purpose -- the CLI must initialize its own schema
+    # (docker compose up shouldn't need a separate migration step, PRD 4.4).
     monkeypatch.setattr(
         sys,
         "argv",

@@ -86,3 +86,23 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  docker:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp .env.example .env
+      - run: docker compose config --quiet
+      - run: docker compose build
+      - name: Smoke-test the full stack
+        run: |
+          docker compose up -d serve dashboard
+          timeout 120 sh -c 'until curl -sf http://localhost:8000/health; do sleep 2; done'
+          timeout 120 sh -c 'until curl -sf http://localhost:8001/health; do sleep 2; done'
+      - if: failure()
+        run: |
+          docker compose ps -a
+          docker compose logs
+      - if: always()
+        run: docker compose down -v

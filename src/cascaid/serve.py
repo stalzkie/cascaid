@@ -16,7 +16,8 @@ import uvicorn
 from cascaid.ingestion.schema import NODE_TYPE_ORDER, NUM_FEATURES
 from cascaid.serving.api import create_app
 from cascaid.serving.risk import load_model
-from cascaid.storage.db import make_session_factory
+from cascaid.storage.db import get_engine, make_session_factory
+from cascaid.storage.repository import init_db
 
 IN_DIM = NUM_FEATURES + len(NODE_TYPE_ORDER)
 
@@ -39,7 +40,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def build_app(args: argparse.Namespace):
     model = load_model(args.model, in_dim=IN_DIM, edge_dim=NUM_FEATURES, hidden=args.hidden)
-    session_factory = make_session_factory(args.database_url) if args.database_url else None
+    session_factory = None
+    if args.database_url:
+        init_db(get_engine(args.database_url))
+        session_factory = make_session_factory(args.database_url)
     return create_app(model=model, store_dir=args.store, session_factory=session_factory)
 
 
