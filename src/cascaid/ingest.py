@@ -74,7 +74,7 @@ def ingest_once(
 
     snapshot_count = 0
     run_id = None
-    with (session_factory() if session_factory else _null_session()) as session:
+    with session_factory() if session_factory else _null_session() as session:
         for snapshot in build_snapshots(nodes, edges, events):
             data = to_pyg_data(snapshot)
             save_snapshot(data, store_dir)
