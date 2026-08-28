@@ -11,6 +11,7 @@ import pytest
 import cascaid._instrument_bootstrap as bootstrap_module
 import cascaid.ingestion.langgraph_adapter as langgraph_adapter
 import cascaid.ingestion.litellm_adapter as litellm_adapter
+import cascaid.ingestion.vector_query_adapter as vector_query_adapter
 from cascaid.ingestion.runtime_context import current_run_id
 from cascaid.ingestion.schema import NodeType
 
@@ -80,6 +81,46 @@ def test_bootstrap_registers_litellm_callbacks_when_detected(monkeypatch, tmp_pa
     monkeypatch.setattr(
         "cascaid.ingestion.stack_detector.detect_stack",
         lambda: DetectedStack(orchestrator=None, model_gateway="litellm", vector_db=None),
+    )
+
+    bootstrap_module.bootstrap()
+
+    assert "sink" in captured
+
+
+def test_bootstrap_registers_pinecone_callbacks_when_detected(monkeypatch, tmp_path):
+    events_path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("CASCAID_RUN_ID", "run-1")
+    monkeypatch.setenv("CASCAID_EVENTS_PATH", str(events_path))
+
+    captured = {}
+    monkeypatch.setattr(vector_query_adapter, "register_pinecone_callbacks", lambda sink: captured.update(sink=sink))
+
+    from cascaid.ingestion.stack_detector import DetectedStack
+
+    monkeypatch.setattr(
+        "cascaid.ingestion.stack_detector.detect_stack",
+        lambda: DetectedStack(orchestrator=None, model_gateway=None, vector_db="pinecone"),
+    )
+
+    bootstrap_module.bootstrap()
+
+    assert "sink" in captured
+
+
+def test_bootstrap_registers_weaviate_callbacks_when_detected(monkeypatch, tmp_path):
+    events_path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("CASCAID_RUN_ID", "run-1")
+    monkeypatch.setenv("CASCAID_EVENTS_PATH", str(events_path))
+
+    captured = {}
+    monkeypatch.setattr(vector_query_adapter, "register_weaviate_callbacks", lambda sink: captured.update(sink=sink))
+
+    from cascaid.ingestion.stack_detector import DetectedStack
+
+    monkeypatch.setattr(
+        "cascaid.ingestion.stack_detector.detect_stack",
+        lambda: DetectedStack(orchestrator=None, model_gateway=None, vector_db="weaviate"),
     )
 
     bootstrap_module.bootstrap()

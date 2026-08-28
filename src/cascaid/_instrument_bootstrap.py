@@ -53,3 +53,17 @@ def bootstrap() -> None:
         from cascaid.ingestion.litellm_adapter import register_litellm_callbacks
 
         register_litellm_callbacks(sink=_file_sink(events_path) if events_path else (lambda event: None))
+
+    # pgvector is intentionally excluded: it's not a distinct client library (a
+    # Postgres extension invoked through psycopg/SQLAlchemy), so reliably
+    # detecting "this query is a vector similarity search" without false
+    # positives needs more design than Pinecone/Weaviate's dedicated clients --
+    # documented as a manual observe_vector_query() wrap for that stack.
+    if stack.vector_db == "pinecone":
+        from cascaid.ingestion.vector_query_adapter import register_pinecone_callbacks
+
+        register_pinecone_callbacks(sink=_file_sink(events_path) if events_path else (lambda event: None))
+    elif stack.vector_db == "weaviate":
+        from cascaid.ingestion.vector_query_adapter import register_weaviate_callbacks
+
+        register_weaviate_callbacks(sink=_file_sink(events_path) if events_path else (lambda event: None))

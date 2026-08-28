@@ -27,6 +27,8 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.6",
     "pytest-httpserver>=1.1",
+    "pinecone>=9.1.0",
+    "weaviate-client>=4.23.0",
 ]
 
 [project.scripts]

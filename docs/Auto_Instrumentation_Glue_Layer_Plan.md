@@ -93,16 +93,36 @@ loads):
    `litellm.failure_callback` rather than overwrite them — a customer who
    already has Langfuse/LangSmith registered there must keep getting their
    existing traces; Cascaid composes, doesn't clobber.
-4. **Vector DBs**: patch the known query methods on the client libraries
-   `stack_detector` found (`pinecone.Index.query`,
-   `weaviate` client's query method) to auto-wrap them in
-   `observe_vector_query`. **pgvector is scoped out of full auto-patch for
-   the beta** — it's not a distinct client library (it's a Postgres
-   extension invoked through psycopg/SQLAlchemy), so reliably detecting
-   "this query is a vector similarity search" without false positives needs
-   more design than the other two. Document it as "add one `with
-   observe_vector_query(...):` line around your pgvector query" for beta
-   users on that stack, rather than pretending it's automatic when it isn't.
+4. **Vector DBs** (built 2026-08-28, corrected from the original design
+   below): neither vendor has "the query method" (singular) — verified via
+   introspection against the installed packages, not assumed. **Pinecone**
+   `Index` has 4: `query`, `query_namespaces`, `search`, `fetch`. **Weaviate**
+   `Collection.query` (really `_QueryCollection`) has 10:
+   `near_vector`/`near_text`/`near_object`/`near_image`/`near_media`/
+   `hybrid`/`bm25` (retrieval-shaped) plus `fetch_objects`/
+   `fetch_object_by_id`/`fetch_objects_by_ids` (plain lookups). Decided to
+   patch **all of them, every method, on both vendors** — patching only the
+   obvious one (`near_vector`) would silently under-count real retrieval
+   activity, understating vector-store load to the GNN: an accuracy problem,
+   not just a coverage gap. `register_pinecone_callbacks`/
+   `register_weaviate_callbacks` in `vector_query_adapter.py` reuse the
+   existing `observe_vector_query` converter the same way
+   `register_litellm_callbacks` reuses its converters. **Testing limitation,
+   not a shortcut**: neither SDK has an offline/mock dispatch mode like
+   LiteLLM's `mock_response` (no local emulator), and `cascaid run` patches
+   `Index.query` etc. *before* a target script runs — so a target script
+   can't install a stand-in afterward without clobbering the wrapper, and
+   there's no live backend to test against for real. Proven instead at the
+   unit level against the real classes/method names (introspected, not
+   guessed) with a stand-in substituted only at the innermost network-call
+   layer — the one thing that genuinely can't be exercised offline.
+   **pgvector is scoped out of full auto-patch for the beta** — it's not a
+   distinct client library (it's a Postgres extension invoked through
+   psycopg/SQLAlchemy), so reliably detecting "this query is a vector
+   similarity search" without false positives needs more design than the
+   other two. Document it as "add one `with observe_vector_query(...):` line
+   around your pgvector query" for beta users on that stack, rather than
+   pretending it's automatic when it isn't.
 5. Stream resulting `CallEvent`s into the existing Graph Store /
    `snapshot_builder.py` path, pointed at the local Cascaid stack instead of
    demo data. **Still open** (2026-08-28): `cascaid run` (built) currently
@@ -170,8 +190,11 @@ already described in the roadmap discussion applies unchanged.
      against an actually-launched subprocess in
      `tests/e2e/test_run_instrumented.py`. Events currently land in a local
      JSON-lines file, not the Graph Store — see "Still open" above.
-4. Vector DB auto-patch for Pinecone/Weaviate (pgvector stays manual per
-   above). Not started.
+4. ✅ **Done** (2026-08-28). Vector DB auto-patch for Pinecone (4 methods)
+   and Weaviate (10 methods) — see above. `pinecone`/`weaviate-client` added
+   as dev-only dependencies (mirrors `litellm`'s pattern). Wired into
+   `cascaid/_instrument_bootstrap.py` so `cascaid run` applies them
+   automatically when detected.
 5. Beta packaging: publish, write the four-line golden-path README section
    above to replace the current dev-only `uv sync` instructions. Not
    started — and per the "Still open" note above, `cascaid run`'s events
