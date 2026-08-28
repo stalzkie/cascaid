@@ -72,6 +72,11 @@ def test_track_record_view_returns_score_history_and_incidents():
 
     view = track_record_view(session, run_id="run-1")
 
-    assert view["history"] == [{"step": 0, "node_name": "agent", "risk_score": 0.1}]
+    assert len(view["history"]) == 1
+    entry = view["history"][0]
+    assert entry["step"] == 0
+    assert entry["node_name"] == "agent"
+    assert entry["risk_score"] == 0.1
+    assert "predicted_at" in entry
     assert len(view["incidents"]) == 1
     assert view["incidents"][0]["node_name"] == "agent"

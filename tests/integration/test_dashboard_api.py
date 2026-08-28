@@ -82,5 +82,8 @@ def test_track_record_endpoint_returns_history_and_incidents(tmp_path):
 
     assert response.status_code == 200
     body = response.json()
-    assert body["history"] == [{"step": 0, "node_name": "agent", "risk_score": 0.3}]
+    assert len(body["history"]) == 1
+    assert body["history"][0]["step"] == 0
+    assert body["history"][0]["risk_score"] == 0.3
+    assert "predicted_at" in body["history"][0]
     assert len(body["incidents"]) == 1

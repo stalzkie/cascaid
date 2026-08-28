@@ -32,7 +32,12 @@ def track_record_view(session: Session, run_id: str) -> dict:
     return {
         "run_id": run_id,
         "history": [
-            {"step": row.step, "node_name": row.node_name, "risk_score": row.risk_score}
+            {
+                "step": row.step,
+                "node_name": row.node_name,
+                "risk_score": row.risk_score,
+                "predicted_at": row.predicted_at.isoformat(),
+            }
             for row in get_score_history(session, run_id)
         ],
         "incidents": [
