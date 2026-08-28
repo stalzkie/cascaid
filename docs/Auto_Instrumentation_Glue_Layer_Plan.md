@@ -210,12 +210,24 @@ already described in the roadmap discussion applies unchanged.
    automatically when detected.
 5a. ✅ **Done** (2026-08-28). Close the persistence gap: `cascaid ingest`,
     see above.
-5b. Beta packaging: publish to PyPI, write the golden-path README section
-    below to replace the current dev-only `uv sync` instructions. Not
-    started — this is the only remaining item.
+5b. ✅ **Mostly done** (2026-08-28). Apache-2.0 `LICENSE` added (there was
+    none — a real gap against the PRD's "open-source" framing).
+    `pyproject.toml` given real PyPI metadata (readme/license/classifiers/
+    urls). README rewritten to lead with the golden path. Verified: `uv
+    build` succeeds, `twine check dist/*` passes, built wheel installs
+    clean into a fresh venv with a working `cascaid` command. **Not done,
+    deliberately**: the actual `twine upload`/`uv publish` — needs real
+    PyPI credentials and is a public, effectively-irreversible action
+    requiring explicit human sign-off, not something to run unilaterally.
+    That one step is all that's left before this plan is fully closed out.
 
 ## Decisions (2026-08-28)
 
+- **License: Apache 2.0** for the open-core (self-hosted) part of Cascaid.
+  Chosen over MIT for the explicit patent grant — a more comfortable choice
+  for companies adopting infra/ML tooling with patentable algorithmic
+  content (the GNN approach here), and the more common choice among
+  comparable open-core observability tools.
 - **Distribution: public PyPI.** No private/TestPyPI staging channel — the
   first public install is also the first beta tester's install. This raises
   the bar on step 3 below: the instrumentation code has to be proven before
