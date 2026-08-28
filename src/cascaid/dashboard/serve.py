@@ -14,7 +14,8 @@ import argparse
 import uvicorn
 
 from cascaid.dashboard.api import create_app
-from cascaid.storage.db import make_session_factory
+from cascaid.storage.db import get_engine, make_session_factory
+from cascaid.storage.repository import init_db
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -27,6 +28,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def build_app(args: argparse.Namespace):
+    init_db(get_engine(args.database_url))
     return create_app(store_dir=args.store, session_factory=make_session_factory(args.database_url))
 
 

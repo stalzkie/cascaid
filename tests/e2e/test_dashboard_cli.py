@@ -67,3 +67,21 @@ def test_dashboard_cli_serves_pipeline_and_track_record(tmp_path, monkeypatch):
     assert {n["name"] for n in pipeline_response.json()["nodes"]} == set(STATIC_NODES.keys())
     assert track_record_response.status_code == 200
     assert len(track_record_response.json()["history"]) == TOTAL_STEPS * len(STATIC_NODES)
+
+
+@pytest.mark.e2e
+def test_dashboard_cli_initializes_its_own_schema_on_a_fresh_database(tmp_path, monkeypatch):
+    # No init_db() call here on purpose -- the CLI must initialize its own schema
+    # (docker compose up shouldn't need a separate migration step, PRD 4.4).
+    database_url = f"sqlite:///{tmp_path / 'cascaid.db'}"
+    monkeypatch.setattr(
+        sys, "argv", ["dashboard", "--database-url", database_url, "--store", str(tmp_path / "graph_store")]
+    )
+
+    app = dashboard_cli.build_app_from_argv()
+    client = TestClient(app)
+
+    response = client.get("/track-record/no-such-run")
+
+    assert response.status_code == 200
+    assert response.json() == {"run_id": "no-such-run", "history": [], "incidents": []}

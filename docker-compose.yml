@@ -1,0 +1,91 @@
+# One command, one artifact (PRD 4.4): `docker compose up` stands up Postgres,
+# seeds it with a pretrained model + demo data (PRD 4.2/4.3 -- value in under
+# five minutes, no real pipeline connected), then serves risk inference, the
+# dashboard API, and the frontend. Point a real pipeline's ingestion agent at
+# the `serve` service's Graph Store volume to replace the demo data.
+#
+# Copy .env.example to .env first (self-hosted/VPC deployment per PRD 5.2
+# shouldn't ship with a baked-in default database password).
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  seed:
+    build: .
+    image: cascaid-backend:local
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    volumes:
+      - data:/app/data
+      - models:/app/models
+      - graph-store:/app/data/graph_store
+    command: >
+      sh -c "
+        python -m cascaid_demo.run_scenarios --runs-per-scenario 15 --steps 30 --out data/runs &&
+        python -m cascaid.train --data data/runs --epochs 15 --out models/pretrained_base.pt &&
+        python -m cascaid_demo.seed_store --data data/runs --model models/pretrained_base.pt
+          --store data/graph_store --database-url $$DATABASE_URL
+      "
+
+  serve:
+    build: .
+    image: cascaid-backend:local
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    volumes:
+      - models:/app/models
+      - graph-store:/app/data/graph_store
+    command: >
+      python -m cascaid.serve --model models/pretrained_base.pt --store data/graph_store
+        --database-url $$DATABASE_URL --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+
+  dashboard:
+    build: .
+    image: cascaid-backend:local
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    volumes:
+      - graph-store:/app/data/graph_store
+    command: >
+      python -m cascaid.dashboard.serve --database-url $$DATABASE_URL
+        --store data/graph_store --host 0.0.0.0 --port 8001
+    ports:
+      - "8001:8001"
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_DASHBOARD_API_URL: http://localhost:8001
+    depends_on:
+      - dashboard
+    ports:
+      - "3000:3000"
+
+volumes:
+  postgres-data:
+  data:
+  models:
+  graph-store:
