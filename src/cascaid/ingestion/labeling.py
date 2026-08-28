@@ -23,6 +23,14 @@ EPICENTER = {
     "vector_db_degradation": "vector_store",
 }
 
+# Below this fraction of ramp progress, fault_progress() is close enough to
+# zero that the affected edges/nodes are statistically indistinguishable
+# from healthy -- see docs/GNN_Accuracy_Improvement_Log.md, Finding 3. Marked
+# unusable rather than a hard positive, the same way the post-cascade window
+# already is, instead of teaching the model a label it can't actually earn
+# from the data.
+RAMP_AMBIGUITY_CUTOFF = 0.5
+
 
 def affected_nodes(scenario: str, static_graph: nx.DiGraph) -> set[str]:
     epicenter = EPICENTER.get(scenario)
@@ -49,9 +57,17 @@ def label_step(
         usable = {n: False for n in node_order}
         return labels, usable
 
-    if step >= fault_onset_step:
-        affected = affected_nodes(scenario, static_graph)
-        for n in affected:
-            labels[n] = 1
+    if step < fault_onset_step:
+        return labels, usable
+
+    ramp_steps = cascade_step - fault_onset_step
+    progress = (step - fault_onset_step) / ramp_steps
+    if progress < RAMP_AMBIGUITY_CUTOFF:
+        usable = {n: False for n in node_order}
+        return labels, usable
+
+    affected = affected_nodes(scenario, static_graph)
+    for n in affected:
+        labels[n] = 1
 
     return labels, usable

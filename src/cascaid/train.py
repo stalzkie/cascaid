@@ -157,14 +157,23 @@ def main():
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--out", type=str, default="models/pretrained_base.pt")
     parser.add_argument("--benchmarks", type=str, default="benchmarks")
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="Controls model init, minibatch order, and the train/val split -- "
+        "same seed + same data reproduces the same trained model.",
+    )
     args = parser.parse_args()
+
+    torch.manual_seed(args.seed)
 
     data_dir = Path(args.data)
     print(f"Loading + building snapshots from {data_dir} ...")
     data_list, shuffled_list, nodes, edges, manifest = build_dataset(data_dir)
     print(f"Built {len(data_list)} graph snapshots across {len(manifest)} runs")
 
-    train_ids, val_ids = split_run_ids(manifest)
+    train_ids, val_ids = split_run_ids(manifest, seed=args.seed)
     train_data = [d for d in data_list if d.run_id in train_ids]
     val_data = [d for d in data_list if d.run_id in val_ids]
     shuf_train_data = [d for d in shuffled_list if d.run_id in train_ids]

@@ -29,6 +29,22 @@ def test_label_step_in_ramp_window_marks_affected_positive():
     assert all(usable.values())
 
 
+def test_label_step_early_in_ramp_window_is_unusable():
+    # progress = (21-20)/10 = 0.1 -- fault_progress is near zero here, so
+    # this step is statistically indistinguishable from healthy even though
+    # it falls inside [fault_onset_step, cascade_step). Excluded rather than
+    # mislabeled, the same way the post-cascade window already is.
+    labels, usable = label_step("rate_limit_model", 21, NODE_ORDER, GRAPH, fault_onset_step=20, cascade_step=30)
+    assert all(v is False for v in usable.values())
+
+
+def test_label_step_at_ramp_midpoint_is_usable_and_positive():
+    # progress = (25-20)/10 = 0.5 -- exactly at the cutoff, still counted.
+    labels, usable = label_step("rate_limit_model", 25, NODE_ORDER, GRAPH, fault_onset_step=20, cascade_step=30)
+    assert labels["primary_model"] == 1
+    assert all(usable.values())
+
+
 def test_label_step_after_cascade_is_unusable():
     labels, usable = label_step("rate_limit_model", 31, NODE_ORDER, GRAPH, fault_onset_step=20, cascade_step=30)
     assert all(v is False for v in usable.values())
