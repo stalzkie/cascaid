@@ -8,8 +8,12 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from cascaid.ingestion.graph_store import latest_snapshot
+from cascaid.ingestion.graph_store import latest_snapshot, list_runs
 from cascaid.storage.repository import get_incidents, get_latest_scores, get_score_history
+
+
+def list_runs_view(store_dir: str | Path) -> list[str]:
+    return list_runs(store_dir)
 
 
 def pipeline_view(store_dir: str | Path, session: Session, run_id: str) -> dict | None:

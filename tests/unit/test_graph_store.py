@@ -1,7 +1,7 @@
 import torch
 from torch_geometric.data import Data
 
-from cascaid.ingestion.graph_store import latest_snapshot, load_snapshot, save_snapshot
+from cascaid.ingestion.graph_store import latest_snapshot, list_runs, load_snapshot, save_snapshot
 
 
 def _make_data(run_id: str = "run-1", step: int = 0) -> Data:
@@ -45,3 +45,14 @@ def test_latest_snapshot_returns_highest_step_for_run(tmp_path):
 
 def test_latest_snapshot_returns_none_for_unknown_run(tmp_path):
     assert latest_snapshot(tmp_path, "no-such-run") is None
+
+
+def test_list_runs_returns_sorted_run_ids_with_at_least_one_snapshot(tmp_path):
+    save_snapshot(_make_data(run_id="run-b", step=0), tmp_path)
+    save_snapshot(_make_data(run_id="run-a", step=0), tmp_path)
+
+    assert list_runs(tmp_path) == ["run-a", "run-b"]
+
+
+def test_list_runs_returns_empty_list_for_a_fresh_store_dir(tmp_path):
+    assert list_runs(tmp_path) == []

@@ -9,7 +9,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, sessionmaker
 
-from cascaid.dashboard.views import pipeline_view, track_record_view
+from cascaid.dashboard.views import list_runs_view, pipeline_view, track_record_view
 
 
 def create_app(store_dir: str | Path, session_factory: sessionmaker[Session]) -> FastAPI:
@@ -22,6 +22,10 @@ def create_app(store_dir: str | Path, session_factory: sessionmaker[Session]) ->
     @app.get("/health")
     def health():
         return {"status": "ok"}
+
+    @app.get("/runs")
+    def runs():
+        return {"run_ids": list_runs_view(store_dir)}
 
     @app.get("/pipeline/{run_id}")
     def pipeline(run_id: str):
