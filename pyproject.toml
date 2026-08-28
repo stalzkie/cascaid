@@ -2,7 +2,18 @@
 name = "cascaid"
 version = "0.1.0"
 description = "Predictive cascading-failure intelligence for AI-native systems"
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.12,<3.13"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Monitoring",
+]
 dependencies = [
     "langgraph>=0.2",
     "torch>=2.3",
@@ -27,7 +38,14 @@ dev = [
     "pytest>=8.0",
     "ruff>=0.6",
     "pytest-httpserver>=1.1",
+    "pinecone>=9.1.0",
+    "weaviate-client>=4.23.0",
 ]
+
+[project.urls]
+Homepage = "https://github.com/stalzkie/cascaid"
+Repository = "https://github.com/stalzkie/cascaid"
+Issues = "https://github.com/stalzkie/cascaid/issues"
 
 [project.scripts]
 cascaid = "cascaid.cli:main"

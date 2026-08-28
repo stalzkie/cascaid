@@ -76,28 +76,72 @@ Behind that one line, at process start (before the customer's app module
 loads):
 
 1. Run `detect_stack()` (already built) to decide which patches to apply.
-2. **LangGraph**: monkey-patch `StateGraph.compile` so every compiled graph
-   is automatically run through `extract_static_topology()` and registered,
-   and monkey-patch the compiled graph's node-execution path so each node
-   call is automatically wrapped in `track_node(name)` — the customer never
-   calls this themselves.
+2. **LangGraph** (built 2026-08-28, corrected from the original design below):
+   `StateGraph.add_node` is patched — not LangGraph's internal Pregel
+   dispatch loop — to wrap each node's function in `track_node(name)` at
+   graph-construction time. A smaller, more targeted seam than intercepting
+   internal execution, and far less coupled to a specific LangGraph version.
+   `StateGraph.compile` is patched separately to extract topology once via
+   `extract_static_topology()` and wrap the compiled graph's
+   `invoke`/`ainvoke` in a fresh `track_step` per call, so `step` keeps
+   meaning "one top-level invocation" — matching what the GNN was actually
+   trained on (see `runtime_context.py`'s `current_run_id`/`current_step`,
+   sibling to `current_node`). Fragmenting one invocation across several
+   call-indexed steps would have been a train/serve distribution mismatch,
+   not just an integration shortcut.
 3. **LiteLLM**: **append** to `litellm.success_callback` /
    `litellm.failure_callback` rather than overwrite them — a customer who
    already has Langfuse/LangSmith registered there must keep getting their
    existing traces; Cascaid composes, doesn't clobber.
-4. **Vector DBs**: patch the known query methods on the client libraries
-   `stack_detector` found (`pinecone.Index.query`,
-   `weaviate` client's query method) to auto-wrap them in
-   `observe_vector_query`. **pgvector is scoped out of full auto-patch for
-   the beta** — it's not a distinct client library (it's a Postgres
-   extension invoked through psycopg/SQLAlchemy), so reliably detecting
-   "this query is a vector similarity search" without false positives needs
-   more design than the other two. Document it as "add one `with
-   observe_vector_query(...):` line around your pgvector query" for beta
-   users on that stack, rather than pretending it's automatic when it isn't.
+4. **Vector DBs** (built 2026-08-28, corrected from the original design
+   below): neither vendor has "the query method" (singular) — verified via
+   introspection against the installed packages, not assumed. **Pinecone**
+   `Index` has 4: `query`, `query_namespaces`, `search`, `fetch`. **Weaviate**
+   `Collection.query` (really `_QueryCollection`) has 10:
+   `near_vector`/`near_text`/`near_object`/`near_image`/`near_media`/
+   `hybrid`/`bm25` (retrieval-shaped) plus `fetch_objects`/
+   `fetch_object_by_id`/`fetch_objects_by_ids` (plain lookups). Decided to
+   patch **all of them, every method, on both vendors** — patching only the
+   obvious one (`near_vector`) would silently under-count real retrieval
+   activity, understating vector-store load to the GNN: an accuracy problem,
+   not just a coverage gap. `register_pinecone_callbacks`/
+   `register_weaviate_callbacks` in `vector_query_adapter.py` reuse the
+   existing `observe_vector_query` converter the same way
+   `register_litellm_callbacks` reuses its converters. **Testing limitation,
+   not a shortcut**: neither SDK has an offline/mock dispatch mode like
+   LiteLLM's `mock_response` (no local emulator), and `cascaid run` patches
+   `Index.query` etc. *before* a target script runs — so a target script
+   can't install a stand-in afterward without clobbering the wrapper, and
+   there's no live backend to test against for real. Proven instead at the
+   unit level against the real classes/method names (introspected, not
+   guessed) with a stand-in substituted only at the innermost network-call
+   layer — the one thing that genuinely can't be exercised offline.
+   **pgvector is scoped out of full auto-patch for the beta** — it's not a
+   distinct client library (it's a Postgres extension invoked through
+   psycopg/SQLAlchemy), so reliably detecting "this query is a vector
+   similarity search" without false positives needs more design than the
+   other two. Document it as "add one `with observe_vector_query(...):` line
+   around your pgvector query" for beta users on that stack, rather than
+   pretending it's automatic when it isn't.
 5. Stream resulting `CallEvent`s into the existing Graph Store /
    `snapshot_builder.py` path, pointed at the local Cascaid stack instead of
-   demo data.
+   demo data. **Done** (2026-08-28): `cascaid ingest --events <path> --store
+   <dir> [--model ... --database-url ...] [--follow]`
+   (`src/cascaid/ingest.py`) reads `cascaid run`'s JSON-lines log and reuses
+   the exact same functions `seed_store.py` already uses for demo data
+   (`build_snapshots`, `to_pyg_data`, `save_snapshot`, `predict_risk`,
+   `record_scores`) — just fed from a live event log instead of a synthetic
+   corpus. Runs as its own process, deliberately separate from the
+   customer's instrumented app: loading torch/the model happens here, not
+   inside their live request path, same reasoning as everywhere else this
+   plan avoided touching the customer's process more than necessary.
+   Snapshot building recomputes from the full accumulated event history on
+   every call rather than a separate incremental algorithm — simpler and
+   provably identical to the already-validated batch path, at the cost of
+   re-processing older events each `--follow` tick (fine for a beta pass).
+   Proven end-to-end in `tests/e2e/test_ingest_cli.py`, sourcing its input
+   from the real bootstrap sinks driving a real LangGraph+LiteLLM pipeline,
+   through to Graph Store snapshots and queryable score history.
 
 ## Packaging work needed to make "one command" literal
 
@@ -115,10 +159,14 @@ loads):
 ## Beta tester's actual golden path once this lands
 
 ```
-pipx install cascaid          # or: uv tool install cascaid
-cascaid demo                  # zero-risk first contact, synthetic pipeline (PRD 4.2)
-docker compose up             # stand up the local Cascaid stack (already works today)
-cascaid run -- python app.py  # point it at their real pipeline, no code changes
+pipx install cascaid                              # or: uv tool install cascaid
+cascaid demo                                       # zero-risk first contact, synthetic pipeline (PRD 4.2)
+docker compose up                                  # stand up the local Cascaid stack (already works today)
+cascaid run -- python app.py                       # point it at their real pipeline, no code changes
+cascaid ingest --events data/live/<run_id>.jsonl \
+  --model models/pretrained_base.pt \
+  --database-url <same one docker compose uses> \
+  --follow                                         # gets it showing up in the dashboard
 ```
 
 Then the existing UI flow (observe-only → dashboard → opt-in alerting)
@@ -136,35 +184,65 @@ already described in the roadmap discussion applies unchanged.
 
 ## Suggested build order
 
-1. `cascaid.cli` module + `[project.scripts]` entry, wrapping *existing*
-   commands (`demo`, `serve`, `dashboard`) under one binary — ships
-   immediately, zero new instrumentation risk, and alone already improves
-   the install story.
-2. Wire the LiteLLM adapter for real: auto-register (appending, not
-   replacing) callbacks when `cascaid run` starts and LiteLLM is detected.
-   Lowest-risk patch target since it uses LiteLLM's own callback API rather
-   than monkey-patching internals.
-3. Wire the LangGraph adapter for real: patch `StateGraph.compile` +
-   node-execution wrapping. Prove this against Cascaid's own demo pipeline
-   first (replace the fake `recorder.log` there with the real adapters —
-   this alone would catch integration bugs the adapters' isolated unit
-   tests can't).
-4. Vector DB auto-patch for Pinecone/Weaviate (pgvector stays manual per
-   above).
-5. Beta packaging: publish, write the four-line golden-path README section
-   above to replace the current dev-only `uv sync` instructions.
+1. ✅ **Done.** `cascaid.cli` module + `[project.scripts]` entry, wrapping
+   *existing* commands (`demo`, `serve`, `dashboard`) under one binary.
+   PR #25.
+2. ✅ **Done.** Wire the LiteLLM adapter for real:
+   `register_litellm_callbacks(sink)` appends (never replaces) to
+   `litellm.success_callback`/`failure_callback`; added
+   `current_run_id`/`current_step` to `runtime_context.py`. PR #26.
+3. ✅ **Done** (2026-08-28), all three parts in one pass:
+   - `instrument_langgraph(topology_sink)` — the `add_node`/`compile` patch
+     described above.
+   - `tests/integration/test_instrumentation_integration.py` — the
+     publish-blocking proof, against a dedicated real pipeline (not
+     `run_scenarios.py`, see the superseded decision above).
+   - `cascaid run -- <command>` — a real subprocess launcher
+     (`cascaid/_instrument_bootstrap.py` + a generated `sitecustomize.py`
+     prepended to `PYTHONPATH`, the same trick `ddtrace-run` uses), proven
+     against an actually-launched subprocess in
+     `tests/e2e/test_run_instrumented.py`. Events currently land in a local
+     JSON-lines file, not the Graph Store — see "Still open" above.
+4. ✅ **Done** (2026-08-28). Vector DB auto-patch for Pinecone (4 methods)
+   and Weaviate (10 methods) — see above. `pinecone`/`weaviate-client` added
+   as dev-only dependencies (mirrors `litellm`'s pattern). Wired into
+   `cascaid/_instrument_bootstrap.py` so `cascaid run` applies them
+   automatically when detected.
+5a. ✅ **Done** (2026-08-28). Close the persistence gap: `cascaid ingest`,
+    see above.
+5b. ✅ **Mostly done** (2026-08-28). Apache-2.0 `LICENSE` added (there was
+    none — a real gap against the PRD's "open-source" framing).
+    `pyproject.toml` given real PyPI metadata (readme/license/classifiers/
+    urls). README rewritten to lead with the golden path. Verified: `uv
+    build` succeeds, `twine check dist/*` passes, built wheel installs
+    clean into a fresh venv with a working `cascaid` command. **Not done,
+    deliberately**: the actual `twine upload`/`uv publish` — needs real
+    PyPI credentials and is a public, effectively-irreversible action
+    requiring explicit human sign-off, not something to run unilaterally.
+    That one step is all that's left before this plan is fully closed out.
 
 ## Decisions (2026-08-28)
 
+- **License: Apache 2.0** for the open-core (self-hosted) part of Cascaid.
+  Chosen over MIT for the explicit patent grant — a more comfortable choice
+  for companies adopting infra/ML tooling with patentable algorithmic
+  content (the GNN approach here), and the more common choice among
+  comparable open-core observability tools.
 - **Distribution: public PyPI.** No private/TestPyPI staging channel — the
   first public install is also the first beta tester's install. This raises
   the bar on step 3 below: the instrumentation code has to be proven before
   anyone outside can run `pip install cascaid`, since there's no private
   gate left to catch a broken patch first.
 - **Migrate the demo pipeline onto the real adapters before recruiting any
-  beta tester.** `cascaid_demo/pipeline.py`'s fake recorder gets replaced
+  beta tester.** ~~`cascaid_demo/pipeline.py`'s fake recorder gets replaced
   with `litellm_adapter`/`langgraph_adapter`/`runtime_context`/
-  `vector_query_adapter` (build-order step 3) and proven working end-to-end
-  first. Combined with the public-PyPI decision above, this migration is
-  now the load-bearing gate before publishing at all, not an optional
-  hardening pass — publish is blocked on it.
+  `vector_query_adapter`~~ **Superseded 2026-08-28, see step 3 below**: the
+  demo's fault injection is precise `rng`-controlled statistics validated
+  against the 0.90 PR-AUC number — routing it through real LiteLLM dispatch
+  would risk that number (no controllable latency/error/cost) for no
+  integration-correctness benefit. `cascaid_demo/run_scenarios.py` and its
+  mocks are untouched, permanently, not just for this pass. The
+  publish-blocking gate is satisfied instead by a dedicated integration test
+  (`tests/integration/test_instrumentation_integration.py`) proving the real
+  adapters work together against a real (if small) LangGraph+LiteLLM
+  pipeline built just for that purpose.
