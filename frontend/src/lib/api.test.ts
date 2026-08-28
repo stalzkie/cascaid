@@ -1,10 +1,28 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchPipeline, fetchTrackRecord } from "./api";
+import { fetchPipeline, fetchRuns, fetchTrackRecord } from "./api";
 
 const originalFetch = globalThis.fetch;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
+});
+
+describe("fetchRuns", () => {
+  it("GETs /runs and returns the run_ids list", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ run_ids: ["a", "b"] }) });
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+
+    const result = await fetchRuns("http://api.local");
+
+    expect(fetchMock).toHaveBeenCalledWith("http://api.local/runs");
+    expect(result).toEqual(["a", "b"]);
+  });
+
+  it("throws on an error response", async () => {
+    globalThis.fetch = vi.fn().mockResolvedValue({ ok: false, status: 500 }) as unknown as typeof fetch;
+
+    await expect(fetchRuns("http://api.local")).rejects.toThrow();
+  });
 });
 
 describe("fetchPipeline", () => {

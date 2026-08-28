@@ -35,6 +35,19 @@ def _app(tmp_path):
 
 
 @pytest.mark.integration
+def test_runs_endpoint_returns_known_run_ids(tmp_path):
+    save_snapshot(_snapshot("run-b", step=0), tmp_path)
+    save_snapshot(_snapshot("run-a", step=0), tmp_path)
+    app, _ = _app(tmp_path)
+    client = TestClient(app)
+
+    response = client.get("/runs")
+
+    assert response.status_code == 200
+    assert response.json() == {"run_ids": ["run-a", "run-b"]}
+
+
+@pytest.mark.integration
 def test_pipeline_endpoint_returns_nodes_and_edges(tmp_path):
     save_snapshot(_snapshot("run-1", step=0), tmp_path)
     app, session_factory = _app(tmp_path)
