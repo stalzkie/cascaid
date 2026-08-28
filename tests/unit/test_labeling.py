@@ -14,6 +14,19 @@ def test_affected_nodes_baseline_is_empty():
     assert affected_nodes("baseline", GRAPH) == set()
 
 
+def test_affected_nodes_compound_cascade_unions_both_epicenters():
+    # compound_cascade has two simultaneous epicenters (primary_model,
+    # vector_store) -- affected_nodes must union both epicenters' own node
+    # and predecessors, not just the first.
+    assert affected_nodes("compound_cascade", GRAPH) == {
+        "primary_model",
+        "research_agent",
+        "synthesizer_agent",
+        "vector_store",
+        "retriever_tool",
+    }
+
+
 def test_label_step_before_onset_is_all_negative():
     labels, usable = label_step("rate_limit_model", 5, NODE_ORDER, GRAPH, fault_onset_step=20, cascade_step=30)
     assert all(v == 0 for v in labels.values())

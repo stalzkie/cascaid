@@ -8,17 +8,21 @@ this fits the broader MVP picture.
 
 **Problem statement**: 7-node synthetic pipeline (`cascaid_demo/pipeline.py`:
 `planner_agent → retriever_tool → vector_store`, `research_agent`/
-`synthesizer_agent → primary_model`/`fallback_model`), 2 fault types
-(`rate_limit_model`, epicenter `primary_model`; `vector_db_degradation`,
-epicenter `vector_store`), GNN vs. a flattened XGBoost baseline vs. a
-shuffled-adjacency ablation, scored on PR-AUC + lead-time detection over a
-held-out set of runs.
+`synthesizer_agent → primary_model`/`fallback_model`), originally 2 fault
+types (`rate_limit_model`, epicenter `primary_model`; `vector_db_degradation`,
+epicenter `vector_store`), later widened to 5 (round 2, below), GNN vs. a
+flattened XGBoost baseline vs. a shuffled-adjacency ablation, scored on
+PR-AUC + lead-time detection over a held-out set of runs.
 
-**Result up front**: mean PR-AUC went from an untrustworthy 0.38–0.79 (single
-noisy runs) → a properly-measured 0.632±0.079 baseline → **0.923±0.027** at
-the final config (min 0.893 across 5 seeds), via one methodology fix (a
-repeated-seed harness) and one real bug fix (a label-design flaw), not
-architecture changes. Full numbers in the Results table at the end.
+**Result up front**: round 1 took mean PR-AUC from an untrustworthy 0.38–0.79
+(single noisy runs) → a properly-measured 0.632±0.079 baseline →
+**0.923±0.027** (2 fault types), via one methodology fix (a repeated-seed
+harness) and one real bug fix (a label-design flaw), not architecture
+changes. Round 2 widened to 5 fault types (3 new scenarios, testing
+generalization across feature channels and multiple simultaneous
+epicenters) and held at **0.900±0.016** — confirming the fix generalizes,
+not just fits 2 memorized patterns. Full numbers in the Results tables
+below.
 
 ---
 
@@ -181,7 +185,7 @@ within the PRD's "value in under 5 minutes" budget, and it reliably clears
 
 ---
 
-## Summary of decisions
+## Summary of decisions (round 1)
 
 | # | Decision | Outcome |
 |---|---|---|
@@ -192,17 +196,115 @@ within the PRD's "value in under 5 minutes" budget, and it reliably clears
 | 5 | **Fix `label_step()`'s ramp-ambiguity window** | The actual unlock: 0.762→0.923 mean at 180 runs; 0.632→0.828 at the *original* 90-run scale |
 | 6 | Bump Docker Compose's demo seed epochs 15→60 | The shipped-out-of-the-box model was still bad even after fix 5; now reliable |
 
+Round 1 left one honest gap open: only 2 fault types existed
+(`rate_limit_model`, `vector_db_degradation`), each with a single fixed
+epicenter. A 0.92 PR-AUC there is a measure of "does the architecture work,"
+not "will this generalize to fault types nobody's coded yet." Round 2 closes
+that gap.
+
+---
+
+## Round 2: widening fault scenario diversity
+
+Goal: prove the model isn't just memorizing two fixed failure signatures.
+Three new scenarios were added, each testing a different generalization
+axis, chosen to be reachable from the *existing* mock objects
+(`mock_llm_gateway.py`, `mock_vector_db.py`) without needing new pipeline
+topology:
+
+| Scenario | Epicenter(s) | What it tests |
+|---|---|---|
+| `cost_spike_model` | `primary_model` | Same epicenter as `rate_limit_model`, but the fault signature is a cost/latency rise with **no** elevated error rate — "silently switched to a pricier model" (PRD 5.2's own example). Forces the model to use the cost feature, not just error/latency. |
+| `vector_store_flaky` | `vector_store` | Mirrors `cost_spike_model` for the vector store: elevated **error rate** with latency staying near baseline, instead of `vector_db_degradation`'s smooth latency ramp. |
+| `compound_cascade` | `primary_model` **and** `vector_store` simultaneously | Two epicenters faulting at once — closer to a real cascading failure than any single-epicenter scenario, and the hardest case: the model has to flag both, not just whichever is more obviously broken. |
+
+### A scenario I designed, then rejected before writing any code
+
+First draft included a fourth scenario, `fallback_model_degradation`
+(epicenter: `fallback_model`, a node the model had never seen as an
+epicenter). Worked through the mechanics before implementing: `fallback_model`
+is only called when `primary_model` fails, which happens ~3% of the time at
+baseline. Over a 30-40 step run, that's roughly one fallback call total —
+nowhere near enough density for `fallback_model`'s per-step aggregated
+features (a rolling mean over its last 5 incoming calls) to carry any real
+signal; most "fault window" steps would just fall back to
+`NOMINAL_DEFAULTS`, teaching the model from near-pure noise. Fixing that
+properly would mean also elevating `primary_model`'s own failure rate to
+force frequent failover — which conflates two epicenters' signals in a way
+that needed more design thought than the time budget allowed. Dropped it
+rather than ship a scenario likely to hurt the metric it was supposed to
+help. `compound_cascade` covers the "multiple simultaneous epicenters"
+generalization axis instead, using two epicenters that are already
+individually well-understood.
+
+### Implementation
+
+- `labeling.py`: generalized `EPICENTER` from `dict[str, str]` to
+  `dict[str, tuple[str, ...]]`; `affected_nodes()` now unions predecessors
+  across all epicenters for a scenario (covered by
+  `test_affected_nodes_compound_cascade_unions_both_epicenters`).
+- `train.py`: `build_traces()` now takes the **max** score across a
+  scenario's epicenters at each step, instead of assuming exactly one
+  (`test_build_traces_uses_max_score_across_multiple_epicenters`) — this is
+  what feeds the lead-time metric, so a compound scenario is "detected" the
+  moment either epicenter is flagged.
+- `mock_llm_gateway.py` / `mock_vector_db.py`: added the three scenarios'
+  fault-injection logic, each verified with a statistical test (500 draws,
+  fixed seed) asserting the intended feature (cost, or error rate) rises
+  while the *other* feature stays near baseline — e.g.
+  `test_cost_spike_model_elevates_cost_without_elevating_error_rate`.
+- `fault_injection.py`: `SCENARIOS` list extended; `make_scenario()` needed
+  no changes since fault-onset randomization is already scenario-agnostic.
+
+### Results: does accuracy hold up on the harder task?
+
+180 runs (30/scenario across all 6 scenarios now — same total run count as
+round 1's best config), epochs=100, 5 seeds:
+
+**PR-AUC: mean 0.900, std 0.016** (min 0.877, max 0.918). Detection rate
+100%. Slightly *tighter* variance than the 3-scenario version (0.016 vs.
+0.027) despite the harder task — plausibly because 180 runs now covers more
+distinct fault signatures, which is more informative per run than 60 runs
+of only 2 fault types repeated.
+
+### The shipped demo config broke again — same lesson as round 1
+
+Re-checked the Docker Compose seed step at its exact settings (now
+automatically covering all 6 scenarios, since it iterates `SCENARIOS`):
+
+| Config | Mean PR-AUC | Std | Detection rate |
+|---|---|---|---|
+| 15 runs/scenario, 60 epochs (round 1's fix) | 0.748 | 0.097 | 93% |
+| 15 runs/scenario, 120 epochs | 0.784 | 0.093 | 93% (more epochs alone didn't fix it — matches round 1's epochs-plateau finding) |
+| **25 runs/scenario, 80 epochs** | **0.892** | 0.033 | **100%** |
+
+Same lesson as round 1, learned faster this time: widening scenario
+diversity without also widening the shipped demo's data budget silently
+degrades the out-of-the-box model. Data density, not more epochs, was
+again the lever that actually worked. Updated `docker-compose.yml`'s seed
+step to `--runs-per-scenario 25` (from 15) and `--epochs 80` (from 60) —
+adds under 2 minutes to `docker compose up`, still comfortably inside the
+PRD's 5-minute budget.
+
+## Summary of decisions (round 2)
+
+| # | Decision | Outcome |
+|---|---|---|
+| 7 | Add `cost_spike_model`, `vector_store_flaky`, `compound_cascade` | 0.90 mean PR-AUC on a genuinely harder, more diverse task |
+| 8 | Design then reject `fallback_model_degradation` before implementing | Avoided shipping a scenario with too little training signal by density |
+| 9 | Generalize `EPICENTER`/`affected_nodes`/`build_traces` to multiple epicenters | Needed for `compound_cascade`; covered by new unit tests |
+| 10 | Bump Docker Compose demo seed to 25 runs/scenario, 80 epochs | Same "shipped config still broken" lesson as round 1 — data density over epochs |
+
 ## What's still open
 
-- Only 2 fault types exist. The model has never seen anything but
-  `rate_limit_model` and `vector_db_degradation` — a 0.92 PR-AUC here is a
-  measure of "does the architecture work," not "will this generalize to
-  fault types nobody's coded yet." Widening scenario coverage is the next
-  accuracy lever, not more tuning of what exists.
-- All of this is synthetic fault-injection data. Real accuracy on customer
-  incidents will be a different number once there's real incident data to
-  train/eval against (PRD's own framing — synthetic accuracy is a proxy for
-  "the architecture works," not the final bar).
+- Real accuracy on customer incidents will be a different number once
+  there's real incident data to train/eval against — synthetic accuracy
+  (now 0.90 across 6 scenarios) is still a proxy for "the architecture and
+  labeling are sound," not the final bar (PRD's own framing).
+- All fault scenarios still originate from the same 7-node graph and the
+  same two mock services (LLM gateway, vector DB). Real generalization
+  testing would need genuinely different topologies, not just different
+  fault signatures on the same one.
 - `scripts/gnn_experiment.py` and `scripts/gnn_ramp_diagnostic.py` are kept
   in the repo as reusable tooling for the next round of this — any future
   accuracy claim should go through the harness, not a single run.

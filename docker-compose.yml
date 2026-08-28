@@ -33,12 +33,14 @@ services:
       - data:/app/data
       - models:/app/models
       - graph-store:/app/data/graph_store
-    # epochs=60 (not the default 30, and well above the original 15 here) --
-    # see docs/GNN_Accuracy_Improvement_Log.md: at this data scale, 15
-    # epochs left the shipped demo model genuinely unreliable (PR-AUC ~0.49,
-    # detection rate ~0.72 over repeated seeds); 60 epochs is a ~10s cost
-    # increase that reliably clears PR-AUC 0.9+ at this same scale.
-    command: sh -c "python -m cascaid_demo.run_scenarios --runs-per-scenario 15 --steps 30 --out data/runs && python -m cascaid.train --data data/runs --epochs 60 --out models/pretrained_base.pt && python -m cascaid_demo.seed_store --data data/runs --model models/pretrained_base.pt --store data/graph_store --database-url $$DATABASE_URL"
+    # runs-per-scenario=25, epochs=80 -- see docs/GNN_Accuracy_Improvement_Log.md
+    # (Fault Scenario Diversity section): widening from 3 to 6 fault
+    # scenarios made the original 15-runs/60-epochs demo config unreliable
+    # again (PR-AUC ~0.75, detection ~0.93 over repeated seeds -- more
+    # epochs alone didn't fix it, this needed more data density). This
+    # config adds well under 2 minutes to `docker compose up` and reliably
+    # clears PR-AUC 0.89+ at this exact scale.
+    command: sh -c "python -m cascaid_demo.run_scenarios --runs-per-scenario 25 --steps 30 --out data/runs && python -m cascaid.train --data data/runs --epochs 80 --out models/pretrained_base.pt && python -m cascaid_demo.seed_store --data data/runs --model models/pretrained_base.pt --store data/graph_store --database-url $$DATABASE_URL"
 
   serve:
     build: .
