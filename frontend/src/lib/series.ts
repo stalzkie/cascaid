@@ -1,19 +1,21 @@
 import type { ScoreHistoryEntry } from "../types";
 
 // Fixed categorical order (never cycled/generated) -- see dataviz skill's
-// reference palette. An entity past the 8th falls into one shared "Other" gray
-// rather than a repeated or invented hue.
+// reference palette. Each slot is a CSS custom property (index.css) so the
+// dark-mode-stepped hue swaps in automatically instead of the line staying
+// pinned to its light-mode hex. An entity past the 8th falls into one shared
+// "Other" gray rather than a repeated or invented hue.
 const CATEGORICAL = [
-  "#2a78d6", // blue
-  "#eb6834", // orange
-  "#1baf7a", // aqua
-  "#eda100", // yellow
-  "#e87ba4", // magenta
-  "#008300", // green
-  "#4a3aa7", // violet
-  "#e34948", // red
+  "var(--series-1)", // blue
+  "var(--series-2)", // orange
+  "var(--series-3)", // aqua
+  "var(--series-4)", // yellow
+  "var(--series-5)", // magenta
+  "var(--series-6)", // green
+  "var(--series-7)", // violet
+  "var(--series-8)", // red
 ];
-const OTHER = "#898781";
+const OTHER = "var(--muted)";
 
 export function seriesColor(index: number): string {
   return CATEGORICAL[index] ?? OTHER;
