@@ -8,10 +8,11 @@ import pytest
 from fastapi.testclient import TestClient
 
 import cascaid.dashboard.serve as dashboard_cli
+from cascaid.auth.passwords import hash_password
 from cascaid.ingestion.graph_store import save_snapshot
 from cascaid.ingestion.snapshot_builder import build_snapshots, to_pyg_data
 from cascaid.storage.db import get_engine, make_session_factory
-from cascaid.storage.repository import init_db, record_scores
+from cascaid.storage.repository import init_db, record_scores, set_config
 from cascaid_demo.fault_injection import make_scenario
 from cascaid_demo.mock_llm_gateway import ModelGateway
 from cascaid_demo.mock_vector_db import VectorStore
@@ -56,13 +57,19 @@ def test_dashboard_cli_serves_pipeline_and_track_record(tmp_path, monkeypatch):
                 session, run_id="dashboard-e2e-run", step=snap.step, scores=dict.fromkeys(data.node_order, 0.1)
             )
 
+    with make_session_factory(database_url)() as session:
+        set_config(session, "auth_username", "admin")
+        set_config(session, "auth_password_hash", hash_password("hunter2"))
+
     monkeypatch.setattr(sys, "argv", ["dashboard", "--database-url", database_url, "--store", str(store_dir)])
     app = dashboard_cli.build_app_from_argv()
     client = TestClient(app)
+    token = client.post("/auth/login", json={"username": "admin", "password": "hunter2"}).json()["token"]
+    auth_headers = {"Authorization": f"Bearer {token}"}
 
-    runs_response = client.get("/runs")
-    pipeline_response = client.get("/pipeline/dashboard-e2e-run")
-    track_record_response = client.get("/track-record/dashboard-e2e-run")
+    runs_response = client.get("/runs", headers=auth_headers)
+    pipeline_response = client.get("/pipeline/dashboard-e2e-run", headers=auth_headers)
+    track_record_response = client.get("/track-record/dashboard-e2e-run", headers=auth_headers)
 
     assert runs_response.status_code == 200
     assert runs_response.json() == {"run_ids": ["dashboard-e2e-run"]}
@@ -83,8 +90,12 @@ def test_dashboard_cli_initializes_its_own_schema_on_a_fresh_database(tmp_path, 
 
     app = dashboard_cli.build_app_from_argv()
     client = TestClient(app)
+    with make_session_factory(database_url)() as session:
+        set_config(session, "auth_username", "admin")
+        set_config(session, "auth_password_hash", hash_password("hunter2"))
+    token = client.post("/auth/login", json={"username": "admin", "password": "hunter2"}).json()["token"]
 
-    response = client.get("/track-record/no-such-run")
+    response = client.get("/track-record/no-such-run", headers={"Authorization": f"Bearer {token}"})
 
     assert response.status_code == 200
     assert response.json() == {"run_id": "no-such-run", "history": [], "incidents": []}

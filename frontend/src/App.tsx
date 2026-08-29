@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Login } from "./components/Login";
 import { NodeStatusTable } from "./components/NodeStatusTable";
 import { PipelineGraph } from "./components/PipelineGraph";
 import { TrackRecordChart } from "./components/TrackRecordChart";
-import { fetchPipeline, fetchRuns, fetchTrackRecord } from "./lib/api";
+import { fetchPipeline, fetchRuns, fetchTrackRecord, UnauthorizedError } from "./lib/api";
+import { getToken, logout } from "./lib/auth";
 import { riskStatus, statusForBand, type RiskBand } from "./lib/riskStatus";
 import type { PipelineView, TrackRecordView } from "./types";
 
@@ -14,6 +16,7 @@ const REFRESH_INTERVAL_MS = 10_000;
 type LoadState = { status: "idle" } | { status: "loading" } | { status: "error"; message: string } | { status: "loaded" };
 
 export function App() {
+  const [authed, setAuthed] = useState(() => getToken() !== null);
   const [runIdInput, setRunIdInput] = useState("");
   const [runId, setRunId] = useState<string | null>(null);
   const [knownRuns, setKnownRuns] = useState<string[]>([]);
@@ -26,16 +29,18 @@ export function App() {
   const refreshRuns = useCallback(async () => {
     try {
       setKnownRuns(await fetchRuns(API_BASE_URL));
-    } catch {
-      // Non-fatal: the run picker just stays at whatever it last had.
+    } catch (err) {
+      if (err instanceof UnauthorizedError) setAuthed(false);
+      // Otherwise non-fatal: the run picker just stays at whatever it last had.
     }
   }, []);
 
   useEffect(() => {
+    if (!authed) return;
     void refreshRuns();
     const interval = setInterval(() => void refreshRuns(), REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [refreshRuns]);
+  }, [authed, refreshRuns]);
 
   const load = useCallback(async (id: string) => {
     setState({ status: "loading" });
@@ -50,15 +55,19 @@ export function App() {
       setLastUpdated(new Date());
       setState({ status: "loaded" });
     } catch (err) {
+      if (err instanceof UnauthorizedError) {
+        setAuthed(false);
+        return;
+      }
       setState({ status: "error", message: err instanceof Error ? err.message : String(err) });
     }
   }, []);
 
   useEffect(() => {
-    if (!runId || !autoRefresh) return;
+    if (!authed || !runId || !autoRefresh) return;
     const interval = setInterval(() => void load(runId), REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [runId, autoRefresh, load]);
+  }, [authed, runId, autoRefresh, load]);
 
   const statusCounts = useMemo(() => {
     const counts = new Map<RiskBand, number>();
@@ -80,6 +89,10 @@ export function App() {
     return knownRuns.filter((id) => id.toLowerCase().includes(q));
   }, [knownRuns, runIdInput]);
 
+  if (!authed) {
+    return <Login apiBaseUrl={API_BASE_URL} onSuccess={() => setAuthed(true)} />;
+  }
+
   return (
     <main className="app">
       <header className="app-header">
@@ -90,6 +103,13 @@ export function App() {
         {lastUpdated && state.status === "loaded" && (
           <p className="last-updated">Last updated: {lastUpdated.toLocaleTimeString()}</p>
         )}
+        <button
+          type="button"
+          className="btn btn-secondary"
+          onClick={() => void logout(API_BASE_URL).then(() => setAuthed(false))}
+        >
+          Log out
+        </button>
       </header>
 
       <div className="run-picker">

@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from torch_geometric.data import Data
 
+from cascaid.auth.passwords import hash_password
 from cascaid.ingestion.graph_store import save_snapshot
 from cascaid.models.gnn import CascadeGNN
 from cascaid.serving.api import create_app
@@ -73,8 +74,20 @@ def test_risk_endpoint_404_for_unknown_run(tmp_path):
     assert response.status_code == 404
 
 
+def _login(client, session_factory, username="admin", password="hunter2") -> str:
+    with session_factory() as session:
+        set_config(session, "auth_username", username)
+        set_config(session, "auth_password_hash", hash_password(password))
+    from cascaid.dashboard.api import create_app as create_dashboard_app
+
+    dashboard_app = create_dashboard_app(store_dir="unused", session_factory=session_factory)
+    response = TestClient(dashboard_app).post("/auth/login", json={"username": username, "password": password})
+    assert response.status_code == 200
+    return response.json()["token"]
+
+
 @pytest.mark.integration
-def test_risk_endpoint_persists_scores_when_session_factory_given(tmp_path):
+def test_risk_endpoint_401s_without_a_token_when_persistence_is_configured(tmp_path):
     torch.manual_seed(0)
     save_snapshot(_snapshot("run-1", step=0), tmp_path)
     model = CascadeGNN(in_dim=IN_DIM, edge_dim=EDGE_DIM, hidden=8)
@@ -85,6 +98,38 @@ def test_risk_endpoint_persists_scores_when_session_factory_given(tmp_path):
     client = TestClient(app)
 
     response = client.get("/risk/run-1")
+
+    assert response.status_code == 401
+
+
+@pytest.mark.integration
+def test_risk_endpoint_is_unauthenticated_when_no_database_is_configured(tmp_path):
+    # Deliberate: with no --database-url there is nowhere to store a validatable
+    # session, so cascaid serve without persistence stays open, same as today.
+    torch.manual_seed(0)
+    save_snapshot(_snapshot("run-1", step=0), tmp_path)
+    model = CascadeGNN(in_dim=IN_DIM, edge_dim=EDGE_DIM, hidden=8)
+    app = create_app(model=model, store_dir=tmp_path)
+    client = TestClient(app)
+
+    response = client.get("/risk/run-1")
+
+    assert response.status_code == 200
+
+
+@pytest.mark.integration
+def test_risk_endpoint_persists_scores_when_session_factory_given(tmp_path):
+    torch.manual_seed(0)
+    save_snapshot(_snapshot("run-1", step=0), tmp_path)
+    model = CascadeGNN(in_dim=IN_DIM, edge_dim=EDGE_DIM, hidden=8)
+    engine = create_engine("sqlite:///:memory:", poolclass=StaticPool, connect_args={"check_same_thread": False})
+    init_db(engine)
+    session_factory = sessionmaker(bind=engine)
+    app = create_app(model=model, store_dir=tmp_path, session_factory=session_factory)
+    client = TestClient(app)
+    token = _login(client, session_factory)
+
+    response = client.get("/risk/run-1", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
 
     with session_factory() as session:
@@ -109,7 +154,8 @@ def test_risk_endpoint_fires_alert_when_enabled_and_threshold_crossed(tmp_path, 
 
     app = create_app(model=model, store_dir=tmp_path, session_factory=session_factory)
     client = TestClient(app)
-    response = client.get("/risk/run-1")
+    token = _login(client, session_factory)
+    response = client.get("/risk/run-1", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200  # all 3 nodes score >= 0.0 threshold, all fire
 
     with session_factory() as session:
@@ -132,7 +178,8 @@ def test_risk_endpoint_does_not_alert_when_alerting_disabled(tmp_path, httpserve
 
     app = create_app(model=model, store_dir=tmp_path, session_factory=session_factory)
     client = TestClient(app)
-    response = client.get("/risk/run-1")
+    token = _login(client, session_factory)
+    response = client.get("/risk/run-1", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
 
     with session_factory() as session:

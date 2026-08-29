@@ -17,6 +17,7 @@ import tempfile
 import uuid
 from pathlib import Path
 
+import cascaid.auth.configure as auth_configure_cli
 import cascaid.dashboard.serve as dashboard_cli
 import cascaid.ingest as ingest_cli
 import cascaid.serve as serve_cli
@@ -24,7 +25,7 @@ import cascaid.train as train_cli
 import cascaid_demo.run_scenarios as run_scenarios_cli
 import cascaid_demo.seed_store as seed_store_cli
 
-SUBCOMMANDS = ("serve", "train", "dashboard", "demo", "run", "ingest")
+SUBCOMMANDS = ("serve", "train", "dashboard", "demo", "run", "ingest", "auth")
 
 _SITECUSTOMIZE_SOURCE = "from cascaid._instrument_bootstrap import bootstrap\nbootstrap()\n"
 
@@ -128,6 +129,11 @@ def main(argv: list[str] | None = None) -> None:
         _run_instrumented(rest)
     elif subcommand == "ingest":
         _delegate("ingest", ingest_cli.main, rest)
+    elif subcommand == "auth":
+        if not rest or rest[0] != "configure":
+            print("usage: cascaid auth configure ...", file=sys.stderr)
+            raise SystemExit(2)
+        _delegate("auth configure", auth_configure_cli.main, rest[1:])
 
 
 if __name__ == "__main__":

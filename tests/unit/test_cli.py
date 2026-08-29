@@ -85,6 +85,27 @@ def test_main_dispatches_ingest_with_passthrough_args_as_argv(monkeypatch):
     assert captured["argv"] == ["ingest", "--events", "data/live/run-1.jsonl", "--store", "data/graph_store"]
 
 
+def test_main_dispatches_auth_configure_with_passthrough_args_as_argv(monkeypatch):
+    captured: dict[str, list[str]] = {}
+
+    def fake_main():
+        import sys as sys_
+
+        captured["argv"] = list(sys_.argv)
+
+    monkeypatch.setattr(cli.auth_configure_cli, "main", fake_main)
+
+    cli.main(["auth", "configure", "--database-url", "sqlite:///x.db", "--set-username", "admin"])
+
+    assert captured["argv"] == ["auth configure", "--database-url", "sqlite:///x.db", "--set-username", "admin"]
+
+
+def test_main_exits_nonzero_for_an_unknown_auth_subcommand():
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(["auth", "not-a-real-subcommand"])
+    assert exc_info.value.code != 0
+
+
 def test_main_dispatches_run_by_launching_the_target_as_an_instrumented_subprocess(monkeypatch, tmp_path):
     captured = {}
 
