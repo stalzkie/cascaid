@@ -83,6 +83,23 @@ def test_register_pinecone_callbacks_patches_every_query_method():
             setattr(Index, name, original)
 
 
+def test_pinecone_query_methods_covers_search_records_and_fetch_by_metadata():
+    # Regression test: pinecone>=9.1.0 added Index.search_records (an alias
+    # for search -- confirmed via Index.search_records.__doc__) and
+    # Index.fetch_by_metadata (a metadata-filtered fetch, same shape as the
+    # already-covered `fetch`) since this list was last verified against the
+    # real installed package. Both are retrieval/fetch-shaped and were
+    # missing -- silently under-counting real retrieval activity, exactly
+    # the failure mode this module's own docstring warns against. See
+    # docs/Production_Readiness_and_Pipeline_Compatibility_Assessment.md.
+    from pinecone import Index
+
+    assert hasattr(Index, "search_records"), "pinecone's Index API changed -- re-verify PINECONE_QUERY_METHODS"
+    assert hasattr(Index, "fetch_by_metadata"), "pinecone's Index API changed -- re-verify PINECONE_QUERY_METHODS"
+    assert "search_records" in PINECONE_QUERY_METHODS
+    assert "fetch_by_metadata" in PINECONE_QUERY_METHODS
+
+
 def test_registered_pinecone_query_sinks_a_call_event_and_returns_the_real_result():
     from pinecone import Index
 

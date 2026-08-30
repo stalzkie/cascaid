@@ -67,7 +67,14 @@ def observe_vector_query(
 # -- an accuracy problem, not just a coverage gap. `fetch`-family lookups are
 # included too even though they're not similarity search, since they still hit
 # the vector store and still carry real latency/error signal.
-PINECONE_QUERY_METHODS = ["query", "query_namespaces", "search", "fetch"]
+#
+# Re-verified 2026-08-30 against pinecone==9.1.0 (docs/Production_Readiness_
+# and_Pipeline_Compatibility_Assessment.md): search_records (an alias for
+# search) and fetch_by_metadata (a metadata-filtered fetch) were added to
+# Index since this list was last checked and were missing here -- the exact
+# under-counting failure mode described above, now closed. Re-verify this
+# list whenever pinecone's pinned version bumps.
+PINECONE_QUERY_METHODS = ["query", "query_namespaces", "search", "search_records", "fetch", "fetch_by_metadata"]
 WEAVIATE_QUERY_METHODS = [
     "near_vector",
     "near_text",
