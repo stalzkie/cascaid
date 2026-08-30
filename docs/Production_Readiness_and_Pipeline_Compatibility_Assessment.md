@@ -109,15 +109,22 @@ functionality, not a scope or design decision.
 Ranked by how many real pipelines each one likely affects:
 
 1. **Direct OpenAI/Anthropic/Gemini SDK calls are invisible to Cascaid.**
-   Only `litellm`'s callback registry is patched
-   (`register_litellm_callbacks`). A pipeline calling
+   Confirmed precisely, not just asserted: `stack_detector.py`'s
+   `detect_stack()` hardcodes `model_gateway = "litellm" if
+   is_available("litellm") else None` -- there is no branch that checks for
+   `openai`/`anthropic`/`google-generativeai` at all. A pipeline calling
    `openai.chat.completions.create(...)` or `anthropic.messages.create(...)`
    directly -- arguably *more* common than routing every call through
-   LiteLLM as a gateway -- gets no model-endpoint observability at all, with
-   no error or indication that anything is missing. This is probably the
+   LiteLLM as a gateway -- gets `model_gateway=None` and silently no
+   model-endpoint observability whatsoever, with no error, warning, or any
+   signal to the customer that this is happening. This is probably the
    single largest "will this work on my pipeline" gap, larger than the
    orchestrator-framework question below, because it affects LangGraph and
-   CrewAI pipelines alike regardless of which orchestrator is used.
+   CrewAI pipelines alike regardless of which orchestrator is used. Building
+   real coverage here (new adapters, one per SDK, plus a design decision on
+   how much to unify with the litellm adapter's shape) is a genuine new-build
+   task, not a same-session bug fix -- flagged for a scoping conversation
+   rather than started speculatively.
 2. **~~CrewAI's `kickoff_async` isn't patched~~ -- checked precisely, and the
    real gap was worse and different.** `Crew.kickoff_async` itself turned
    out fine unpatched: it's `return await asyncio.to_thread(self.kickoff, ...)`,
