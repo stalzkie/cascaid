@@ -1,5 +1,32 @@
 # Production Readiness & Pipeline Compatibility Assessment (2026-08-30)
 
+## Session status (2026-08-31) — pausing here, continuing next session
+
+**Compatibility pass: done for this round.** Five real bugs found and fixed
+(all merged to `staging`, PRs #44-#47 + a docs-only precision PR #48) --
+see "Pipeline compatibility" below for the full list (LangGraph `ainvoke`,
+CrewAI `async_execution`, Pinecone method drift, Weaviate's async client,
+LiteLLM streaming). All five shared one root cause: an implicit thread/task
+boundary Cascaid's contextvar-based attribution didn't account for. Each
+has a regression test; `staging` is green (248 tests, run 2x consecutively
+for stability before merging each one).
+
+**Not started yet, pick up next session:**
+- Direct OpenAI/Anthropic/Gemini SDK instrumentation -- confirmed precisely
+  as the largest remaining compatibility gap (`stack_detector.py` never
+  checks for these packages at all), but it's a new-adapter build, not a
+  bug fix, and needs a scoping conversation first (which SDK(s) first, how
+  much to unify with the litellm adapter's shape) before starting.
+- A generic manual-tracking fallback SDK for frameworks Cascaid doesn't
+  auto-detect (AutoGen, hand-rolled orchestration).
+- Additional vector DB adapters (Chroma/Qdrant/Milvus/LanceDB).
+- The entire "Production readiness" section below (migrations, retention
+  policy, restart policies/healthchecks, model-config versioning, CORS,
+  secrets-at-rest, backup/restore docs) -- not touched this round at all,
+  since the user asked to focus on compatibility first.
+
+Start there next time rather than re-deriving this list from scratch.
+
 Follow-up to `Client_Readiness_and_YC_Grade_Assessment.md`, narrowed to two
 questions: what stands between today's Cascaid and a customer actually
 running it in production, and how well does it handle pipelines that don't
@@ -227,23 +254,26 @@ Ranked by how many real pipelines each one likely affects:
    nothing describes how a customer would back up or restore incident
    history and score history.
 
-## What I'm doing now vs. flagging for a decision
+## What got fixed this round vs. flagged for a decision
 
-**Fixing now** (bug fix in existing code, no design decision, no public API
-change): the async LangGraph `ainvoke` instrumentation bug above.
+**Fixed** (bug fixes in existing code, no design decisions, no public API
+changes) -- see the session-status note at the top for the full list and
+PR numbers: LangGraph `ainvoke`, CrewAI `async_execution`, Pinecone method
+drift, Weaviate's async client, LiteLLM streaming.
 
 **Flagging, not building yet** -- each of these is either a genuine
-infra/architecture decision (worth a quick confirmation before I sink time
+infra/architecture decision (worth a quick confirmation before sinking time
 into it) or a larger net-new build than a same-session bug fix:
+- Direct OpenAI/Anthropic/Gemini SDK instrumentation (a new adapter, same
+  shape as the existing LiteLLM one, but real new-build effort) -- the
+  single largest remaining compatibility gap
+- A generic manual-tracking fallback SDK for unsupported frameworks
+- Additional vector DB adapters (Chroma/Qdrant/Milvus/LanceDB)
 - Introducing Alembic migrations (a real workflow change for every future
   schema edit, not just this one)
 - Designing and shipping an actual retention policy (TimescaleDB
   hypertables vs. a simpler periodic-delete job vs. just documenting a
   customer-side cron -- genuine trade-off, not obvious)
-- Direct OpenAI/Anthropic/Gemini SDK instrumentation (a new adapter, same
-  shape as the existing LiteLLM one, but real new-build effort)
-- A generic manual-tracking fallback SDK for unsupported frameworks
-- Additional vector DB adapters (Chroma/Qdrant/Milvus/LanceDB)
 - `docker-compose.yml` restart policies + serve/dashboard healthchecks
   (small, but changes how the stack behaves operationally, worth a nod
   before changing)
