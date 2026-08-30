@@ -139,12 +139,21 @@ every self-hosted install's model.
 - **UX**: invisible when working, which is correct -- the whole point of
   "fine-tunes quietly."
 
-**Decision**: build a first slice now -- a `cascaid retrain` CLI command
-that reruns `train.py` against a live install's accumulated Postgres data
-and atomically swaps the served model artifact on success, runnable by hand
-or from cron/CI. Full "auto-fires the moment drift crosses a threshold"
-wiring is a natural fast-follow once the manual command is proven, not a
+**Decision**: build a first slice -- a `cascaid retrain` CLI command that
+reruns `train.py` against a live install's accumulated Postgres data and
+atomically swaps the served model artifact on success, runnable by hand or
+from cron/CI. Full "auto-fires the moment drift crosses a threshold" wiring
+is a natural fast-follow once the manual command is proven, not a
 prerequisite for it.
+
+**Update**: investigated before writing code, and this turned out to need a
+schema decision, not just plumbing -- `CallEvent`/`Snapshot` carry no
+wall-clock timestamp today, only a sequential step index, so there's
+currently no way to map a real `IncidentLabel.occurred_at` onto a specific
+snapshot step. See `Real_Data_Retraining_Plan.md` for the full finding, the
+proposed (backward-compatible, additive) schema change, and the one
+decision I'm surfacing rather than guessing on: whether to make that change
+to a format `cascaid==0.2.0` already ships publicly.
 
 ## 4. One thing that needs your call, not mine
 
