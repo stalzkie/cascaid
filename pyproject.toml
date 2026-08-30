@@ -41,6 +41,7 @@ dev = [
     "pytest-httpserver>=1.1",
     "pinecone>=9.1.0",
     "weaviate-client>=4.23.0",
+    "crewai>=1.0",
 ]
 
 [project.urls]
