@@ -10,6 +10,7 @@ latest graph snapshot of a given run_id, read from the Graph Store.
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
 import uvicorn
 
@@ -33,17 +34,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--database-url",
         type=str,
         default=None,
-        help="If set, persists every served risk score to this Postgres/SQLAlchemy URL (PRD 5.2 Storage).",
+        help="Persists every served risk score here, and is also where auth sessions are "
+        "validated -- defaults to a local SQLite file under --store's parent dir if unset "
+        "(no Postgres required), same as `cascaid demo`. Auth is always enforced regardless.",
     )
     return parser.parse_args(argv)
 
 
 def build_app(args: argparse.Namespace):
     model = load_model(args.model, in_dim=IN_DIM, edge_dim=NUM_FEATURES, hidden=args.hidden)
-    session_factory = None
-    if args.database_url:
-        init_db(get_engine(args.database_url))
-        session_factory = make_session_factory(args.database_url)
+    database_url = args.database_url or f"sqlite:///{Path(args.store).parent / 'cascaid-serve.db'}"
+    init_db(get_engine(database_url))
+    session_factory = make_session_factory(database_url)
     return create_app(model=model, store_dir=args.store, session_factory=session_factory)
 
 

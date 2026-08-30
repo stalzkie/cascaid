@@ -39,30 +39,24 @@ def _maybe_alert(session: Session, run_id: str, scores: dict[str, float], node_t
 def create_app(
     model: CascadeGNN | None,
     store_dir: str | Path,
-    session_factory: sessionmaker[Session] | None = None,
+    session_factory: sessionmaker[Session],
 ) -> FastAPI:
     app = FastAPI()
-    # No --database-url means no place to store a validatable session (see
-    # cascaid.auth.dependency), so an ephemeral, unpersisted `cascaid serve` stays
-    # open, same as it was before auth existed.
-    auth_dependencies = [Depends(make_require_auth(session_factory))] if session_factory is not None else []
+    require_auth = make_require_auth(session_factory)
 
     @app.get("/health")
     def health():
         return {"status": "ok"}
 
-    @app.get("/risk/{run_id}", dependencies=auth_dependencies)
+    @app.get("/risk/{run_id}", dependencies=[Depends(require_auth)])
     def risk(run_id: str):
         data = latest_snapshot(store_dir, run_id)
         if data is None:
             raise HTTPException(status_code=404, detail=f"no snapshot found for run_id={run_id!r}")
         scores = predict_risk(model, data)
-        if session_factory is not None:
-            with session_factory() as session:
-                record_scores(session, run_id=run_id, step=data.step, scores=scores)
-                _maybe_alert(
-                    session, run_id=run_id, scores=scores, node_types=dict(zip(data.node_order, data.node_types))
-                )
+        with session_factory() as session:
+            record_scores(session, run_id=run_id, step=data.step, scores=scores)
+            _maybe_alert(session, run_id=run_id, scores=scores, node_types=dict(zip(data.node_order, data.node_types)))
         return {"run_id": run_id, "step": data.step, "scores": scores}
 
     return app
