@@ -20,12 +20,13 @@ from torch_geometric.loader import DataLoader
 
 from cascaid.benchmarking import save_benchmark
 from cascaid.ingestion.labeling import EPICENTER, label_step
-from cascaid.ingestion.schema import NODE_TYPE_ORDER, NUM_FEATURES
+from cascaid.ingestion.schema import FEATURE_NAMES, NODE_TYPE_ORDER, NUM_FEATURES
 from cascaid.ingestion.snapshot_builder import build_snapshots, shuffle_edge_index, to_pyg_data
 from cascaid.ingestion.topology import build_static_graph, load_manifest, load_run_events, load_topology
 from cascaid.metrics import RunTrace, lead_time_accuracy, pr_auc
 from cascaid.models.baseline import predict_baseline, train_baseline
 from cascaid.models.gnn import CascadeGNN
+from cascaid.serving.drift import compute_reference, save_reference
 
 IN_DIM = NUM_FEATURES + len(NODE_TYPE_ORDER)
 RISK_THRESHOLD = 0.5
@@ -228,6 +229,15 @@ def main():
     out_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(gnn.state_dict(), out_path)
     print(f"\nSaved pretrained GNN to {out_path}")
+
+    # Reference distribution for drift detection (PRD 7) -- computed once here so
+    # serving never needs the raw training data, just this. Only the continuous
+    # features (x_train's first NUM_FEATURES columns); the one-hot node-type
+    # columns that follow aren't a distribution PSI is meaningful over.
+    reference = compute_reference(x_train[:, :NUM_FEATURES], FEATURE_NAMES)
+    reference_path = out_path.with_suffix(".drift_reference.json")
+    save_reference(reference, reference_path)
+    print(f"Saved drift reference to {reference_path}")
 
 
 if __name__ == "__main__":
