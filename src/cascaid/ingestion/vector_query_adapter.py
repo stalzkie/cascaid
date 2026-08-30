@@ -8,10 +8,11 @@ library is inside it.
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import time
 from collections.abc import Callable
-from contextlib import contextmanager
+from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timezone
 
 from cascaid.ingestion.runtime_context import current_node, current_run_id, current_step
@@ -21,6 +22,25 @@ from cascaid.ingestion.schema import CallEvent, NodeType
 class VectorQueryTracker:
     def __init__(self):
         self.event: CallEvent | None = None
+
+
+def _build_vector_call_event(
+    caller: str, callee: str, run_id: str, step: int, scenario: str, caller_type: NodeType, error: bool, start: float
+) -> CallEvent:
+    return CallEvent(
+        run_id=run_id,
+        scenario=scenario,
+        step=step,
+        caller=caller,
+        callee=callee,
+        caller_type=caller_type,
+        callee_type=NodeType.VECTOR_STORE,
+        latency_ms=(time.perf_counter() - start) * 1000,
+        error=error,
+        retried=False,
+        token_cost=0.0,
+        occurred_at=datetime.now(timezone.utc),
+    )
 
 
 @contextmanager
@@ -42,21 +62,32 @@ def observe_vector_query(
         error = True
         raise
     finally:
-        latency_ms = (time.perf_counter() - start) * 1000
-        tracker.event = CallEvent(
-            run_id=run_id,
-            scenario=scenario,
-            step=step,
-            caller=caller,
-            callee=callee,
-            caller_type=caller_type,
-            callee_type=NodeType.VECTOR_STORE,
-            latency_ms=latency_ms,
-            error=error,
-            retried=False,
-            token_cost=0.0,
-            occurred_at=datetime.now(timezone.utc),
-        )
+        tracker.event = _build_vector_call_event(caller, callee, run_id, step, scenario, caller_type, error, start)
+
+
+@asynccontextmanager
+async def observe_vector_query_async(
+    caller: str,
+    callee: str,
+    *,
+    run_id: str,
+    step: int,
+    scenario: str = "production",
+    caller_type: NodeType = NodeType.TOOL,
+):
+    """Async twin of observe_vector_query -- needed for vector DB clients that
+    expose an async query surface (e.g. Weaviate's _QueryCollectionAsync, see
+    docs/Production_Readiness_and_Pipeline_Compatibility_Assessment.md)."""
+    tracker = VectorQueryTracker()
+    start = time.perf_counter()
+    error = False
+    try:
+        yield tracker
+    except Exception:
+        error = True
+        raise
+    finally:
+        tracker.event = _build_vector_call_event(caller, callee, run_id, step, scenario, caller_type, error, start)
 
 
 # Auto-patch surface (PRD 4.5, runtime seam): verified via introspection against
@@ -93,7 +124,33 @@ def _wrap_vector_method(vendor_label: str, original: Callable, sink_cell: list):
     """sink_cell is a 1-element list so register_*_callbacks can retarget the sink
     on a repeat call without re-patching (same pattern as instrument_langgraph's
     module-level sink) -- each patched method gets its own cell, no shared mutable
-    state across different methods or different query calls."""
+    state across different methods or different query calls.
+
+    Dispatches to an async wrapper when `original` is a coroutine function (e.g.
+    Weaviate's _QueryCollectionAsync) -- a sync wrapper around an async method
+    would return an unawaited coroutine and exit its `with` block before the
+    real query ever ran, the same class of bug fixed in langgraph_adapter.py's
+    _wrap_invoke/_wrap_node_fn (see
+    docs/Production_Readiness_and_Pipeline_Compatibility_Assessment.md)."""
+    if asyncio.iscoroutinefunction(original):
+
+        @functools.wraps(original)
+        async def wrapped_async(self, *args, **kwargs):
+            run_id, step = current_run_id.get(), current_step.get()
+            if run_id is None or step is None:
+                return await original(self, *args, **kwargs)
+
+            callee = getattr(self, "name", vendor_label)
+            caller = current_node.get() or "unknown"
+            try:
+                async with observe_vector_query_async(caller, callee, run_id=run_id, step=step) as tracker:
+                    result = await original(self, *args, **kwargs)
+                return result
+            finally:
+                if tracker.event is not None:
+                    sink_cell[0](tracker.event)
+
+        return wrapped_async
 
     @functools.wraps(original)
     def wrapped(self, *args, **kwargs):
@@ -124,6 +181,7 @@ def _patch_methods(cls, method_names: list[str], vendor_label: str, sink: Callab
 
 _patched_pinecone_sink: list[Callable[[CallEvent], None]] | None = None
 _patched_weaviate_sink: list[Callable[[CallEvent], None]] | None = None
+_patched_weaviate_async_sink: list[Callable[[CallEvent], None]] | None = None
 
 
 def register_pinecone_callbacks(sink: Callable[[CallEvent], None]) -> None:
@@ -142,12 +200,22 @@ def register_pinecone_callbacks(sink: Callable[[CallEvent], None]) -> None:
 
 
 def register_weaviate_callbacks(sink: Callable[[CallEvent], None]) -> None:
-    """Patches every Weaviate query-shaped method on _QueryCollection
-    (WEAVIATE_QUERY_METHODS) the same way register_pinecone_callbacks does."""
-    global _patched_weaviate_sink
+    """Patches every Weaviate query-shaped method on both _QueryCollection
+    (sync client) and _QueryCollectionAsync (weaviate's separate async client,
+    e.g. WeaviateAsyncClient/use_async_with_weaviate_cloud -- same method
+    names, a fully distinct class, previously unpatched: see
+    docs/Production_Readiness_and_Pipeline_Compatibility_Assessment.md) the
+    same way register_pinecone_callbacks does."""
+    global _patched_weaviate_sink, _patched_weaviate_async_sink
+    from weaviate.collections.collection.async_ import _QueryCollectionAsync
     from weaviate.collections.collection.sync import _QueryCollection
 
     if _patched_weaviate_sink is not None:
         _patched_weaviate_sink[0] = sink
-        return
-    _patched_weaviate_sink = _patch_methods(_QueryCollection, WEAVIATE_QUERY_METHODS, "weaviate", sink)
+    else:
+        _patched_weaviate_sink = _patch_methods(_QueryCollection, WEAVIATE_QUERY_METHODS, "weaviate", sink)
+
+    if _patched_weaviate_async_sink is not None:
+        _patched_weaviate_async_sink[0] = sink
+    else:
+        _patched_weaviate_async_sink = _patch_methods(_QueryCollectionAsync, WEAVIATE_QUERY_METHODS, "weaviate", sink)
