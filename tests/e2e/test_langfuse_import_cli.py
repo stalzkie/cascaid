@@ -6,7 +6,7 @@ import sys
 
 import pytest
 
-import cascaid.import_langfuse as import_langfuse_cli
+import cascaid.langfuse_import as import_langfuse_cli
 from cascaid.storage.db import make_session_factory
 from cascaid.storage.repository import get_incidents
 

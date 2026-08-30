@@ -2,7 +2,7 @@
 incidents (PRD 4: historical incident/degradation labeling, "sourced from
 Langfuse/LangSmith/Phoenix exports").
 
-    python -m cascaid.import_langfuse --file scores.json --database-url ... \\
+    python -m cascaid.langfuse_import --file scores.json --database-url ... \\
         --run-id <run_id> --node-name <node_name> [--threshold 0.5]
 """
 

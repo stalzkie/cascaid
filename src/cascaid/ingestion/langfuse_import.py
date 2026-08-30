@@ -53,7 +53,7 @@ def import_langfuse_incidents(
             run_id=run_id,
             node_name=node_name,
             incident_type=f"langfuse_score_below_threshold:{score.get('name', 'unknown')}",
-            occurred_at=datetime.fromisoformat(score["timestamp"].replace("Z", "+00:00")),
+            occurred_at=datetime.fromisoformat(score["timestamp"]),
             source="langfuse",
         )
     return len(degraded)

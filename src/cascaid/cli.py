@@ -20,8 +20,8 @@ from pathlib import Path
 import cascaid.auth.configure as auth_configure_cli
 import cascaid.dashboard.serve as dashboard_cli
 import cascaid.drift as drift_cli
-import cascaid.import_langfuse as import_langfuse_cli
 import cascaid.ingest as ingest_cli
+import cascaid.langfuse_import as import_langfuse_cli
 import cascaid.mcp.server as mcp_server_cli
 import cascaid.serve as serve_cli
 import cascaid.train as train_cli
