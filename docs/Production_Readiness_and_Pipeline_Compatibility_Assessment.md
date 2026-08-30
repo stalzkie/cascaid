@@ -78,13 +78,31 @@ callback dispatch under the full test suite's real load, enough to make
 unrelated, previously-reliable tests' short timeouts flaky. Reverted to a
 hybrid: sync `completion()` keeps using the legacy lists (proven fast,
 unchanged from before), and only `acompletion()` uses the new
-`CustomLogger` + metadata-snapshot mechanism. Both bugs (and this dispatch
-mechanism split) are covered by deterministic unit tests that don't depend
-on litellm's actual callback-firing timing -- see
+`CustomLogger` + metadata-snapshot mechanism.
+
+**A third bug, found while checking whether the "sync path is reliable"
+claim above actually held for every sync call shape**: it didn't for
+*streaming* (`stream=True`). Verified empirically: litellm dispatches a
+streaming sync `completion()` call's success callback via a background
+`ThreadPoolExecutor` -- the exact same contextvar-loss failure mode as
+`acompletion`'s deferred dispatch and CrewAI's `async_execution` thread,
+just via yet another mechanism -- so ambient `current_run_id`/`current_step`
+reads silently dropped every streaming CallEvent even on the path documented
+above as "proven fast and reliable." litellm also fires one success callback
+per streaming *chunk* plus a final aggregated one; naively fixing just the
+attribution would have produced a run of near-duplicate, degenerate-latency
+events per logical call instead of one. Fixed by switching the sync path to
+read from the same metadata snapshot the async path already used (removing
+the sync/async attribution split entirely -- only the *registration*
+mechanism still differs, per the reasoning above), and skipping every
+callback until the one where `kwargs["complete_streaming_response"]` is set.
+
+All three bugs (and the sync/async dispatch-mechanism split) are covered by
+deterministic or real-dispatch unit tests -- see
 `tests/unit/test_langgraph_adapter.py` and
-`tests/unit/test_litellm_adapter.py`. I'm fixing all of this directly
-rather than just flagging it, since it's a correctness bug in already-
-shipped functionality, not a scope or design decision.
+`tests/unit/test_litellm_adapter.py`. I'm fixing all of this directly rather
+than just flagging it, since it's a correctness bug in already-shipped
+functionality, not a scope or design decision.
 
 ## Pipeline compatibility: what else breaks or is silently unsupported
 
