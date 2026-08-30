@@ -23,7 +23,7 @@ import torch
 from torch_geometric.loader import DataLoader
 
 from cascaid.ingestion.schema import NUM_FEATURES
-from cascaid.metrics import lead_time_accuracy, pr_auc
+from cascaid.metrics import brier_score, expected_calibration_error, lead_time_accuracy, pr_auc
 from cascaid.models.gnn import CascadeGNN
 from cascaid.train import IN_DIM, build_dataset, build_traces, eval_gnn, split_run_ids
 
@@ -78,7 +78,13 @@ def run_one_seed(
 
     auc = pr_auc(y_true, y_score)
     lead = lead_time_accuracy(build_traces(manifest, val_ids, node_scores), threshold=0.5)
-    return {"pr_auc": auc, "detection_rate": lead["detection_rate"], "mean_lead": lead["mean_lead_time_steps"]}
+    return {
+        "pr_auc": auc,
+        "detection_rate": lead["detection_rate"],
+        "mean_lead": lead["mean_lead_time_steps"],
+        "brier": brier_score(y_true, y_score),
+        "ece": expected_calibration_error(y_true, y_score),
+    }
 
 
 def main():
@@ -107,17 +113,30 @@ def main():
         r = run_one_seed(
             seed, data_list, manifest, args.epochs, args.hidden, args.lr, args.layers, args.conv, args.weight_decay
         )
-        print(f"  seed={seed}  PR-AUC={r['pr_auc']:.3f}  detect={r['detection_rate']:.2f}  lead={r['mean_lead']:.2f}")
+        print(
+            f"  seed={seed}  PR-AUC={r['pr_auc']:.3f}  detect={r['detection_rate']:.2f}  "
+            f"lead={r['mean_lead']:.2f}  brier={r['brier']:.3f}  ECE={r['ece']:.3f}"
+        )
         results.append(r)
 
     aucs = [r["pr_auc"] for r in results if not np.isnan(r["pr_auc"])]
     detects = [r["detection_rate"] for r in results if not np.isnan(r["detection_rate"])]
+    briers = [r["brier"] for r in results if not np.isnan(r["brier"])]
+    eces = [r["ece"] for r in results if not np.isnan(r["ece"])]
     print("\n=== Summary over {} seeds ===".format(args.seeds))
     print(
         f"PR-AUC:          mean={statistics.mean(aucs):.3f}  std={statistics.pstdev(aucs):.3f}  "
         f"min={min(aucs):.3f}  max={max(aucs):.3f}"
     )
     print(f"Detection rate:  mean={statistics.mean(detects):.3f}  std={statistics.pstdev(detects):.3f}")
+    print(
+        f"Brier score:     mean={statistics.mean(briers):.3f}  std={statistics.pstdev(briers):.3f}  "
+        "(0=perfectly calibrated, 0.25=uninformative)"
+    )
+    print(
+        f"ECE:             mean={statistics.mean(eces):.3f}  std={statistics.pstdev(eces):.3f}  "
+        "(mean gap between predicted confidence and empirical accuracy per bucket)"
+    )
 
 
 if __name__ == "__main__":
