@@ -191,6 +191,22 @@ work you'd do anyway for option 2, keeps the differentiator intact, and
 still ships the demo-able feature. Let me know if you want that, a
 different option, or want to skip this one for now.
 
+**Built (option 1)**: `GET /risk/{run_id}/explain/{node_name}`
+(`serving/api.py`), off by default, opt-in via
+`cascaid explain configure --enable --base-url ... --api-key ... --model ...`
+against any OpenAI-compatible `/chat/completions` endpoint -- OpenAI,
+an OpenAI-compatible proxy, or a self-hosted vLLM/Ollama instance for a
+customer who doesn't want pipeline data leaving their cluster. The prompt
+(`explain/prompt.py`) is built from the node's own current metrics plus its
+direct downstream dependencies' metrics (already-computed data, no new
+storage), matching the PRD's own example framing. **Not yet done**: a
+dashboard UI affordance to actually trigger this (click a risky node, see
+the explanation) -- the frontend has no per-node click interaction to hang
+this off today, and every prior frontend change in this repo could only be
+verified through CI, not locally (`UI_Polish_MVP_Log.md`'s own environment
+note), so it's scoped as a separate, CI-verified follow-up rather than
+bundled into this backend-only, fully test-covered slice.
+
 ## 5. Explicitly deferred (considered, not missed)
 
 - **Helm chart for Kubernetes** (PRD §5.2/4.4): real gap for k8s-native

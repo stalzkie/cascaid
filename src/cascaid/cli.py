@@ -20,6 +20,7 @@ from pathlib import Path
 import cascaid.auth.configure as auth_configure_cli
 import cascaid.dashboard.serve as dashboard_cli
 import cascaid.drift as drift_cli
+import cascaid.explain.configure as explain_configure_cli
 import cascaid.ingest as ingest_cli
 import cascaid.langfuse_import as import_langfuse_cli
 import cascaid.mcp.server as mcp_server_cli
@@ -29,7 +30,20 @@ import cascaid.train as train_cli
 import cascaid_demo.run_scenarios as run_scenarios_cli
 import cascaid_demo.seed_store as seed_store_cli
 
-SUBCOMMANDS = ("serve", "train", "dashboard", "demo", "run", "ingest", "auth", "mcp", "drift", "import", "retrain")
+SUBCOMMANDS = (
+    "serve",
+    "train",
+    "dashboard",
+    "demo",
+    "run",
+    "ingest",
+    "auth",
+    "mcp",
+    "drift",
+    "import",
+    "retrain",
+    "explain",
+)
 
 _SITECUSTOMIZE_SOURCE = "from cascaid._instrument_bootstrap import bootstrap\nbootstrap()\n"
 
@@ -144,6 +158,11 @@ def main(argv: list[str] | None = None) -> None:
         _delegate("drift", drift_cli.main, rest)
     elif subcommand == "retrain":
         _delegate("retrain", retrain_cli.main, rest)
+    elif subcommand == "explain":
+        if not rest or rest[0] != "configure":
+            print("usage: cascaid explain configure ...", file=sys.stderr)
+            raise SystemExit(2)
+        _delegate("explain configure", explain_configure_cli.main, rest[1:])
     elif subcommand == "import":
         if not rest or rest[0] != "langfuse":
             print("usage: cascaid import langfuse ...", file=sys.stderr)
