@@ -1,4 +1,5 @@
 import time
+from datetime import timezone
 
 import pytest
 
@@ -42,6 +43,8 @@ def test_observe_vector_query_records_success():
     assert event.retried is False
     assert event.token_cost == 0.0
     assert event.latency_ms >= 10
+    assert event.occurred_at is not None
+    assert event.occurred_at.tzinfo == timezone.utc
 
 
 def test_observe_vector_query_records_error_and_reraises():

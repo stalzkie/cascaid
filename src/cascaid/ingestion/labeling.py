@@ -18,6 +18,8 @@ metrics.py are built to detect.
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 import networkx as nx
 
 EPICENTER: dict[str, tuple[str, ...]] = {
@@ -75,5 +77,40 @@ def label_step(
     affected = affected_nodes(scenario, static_graph)
     for n in affected:
         labels[n] = 1
+
+    return labels, usable
+
+
+def label_step_from_incidents(
+    node_order: list[str],
+    incidents: list[tuple[str, datetime]],
+    step_start: datetime | None,
+    step_end: datetime | None,
+    window_before: timedelta = timedelta(minutes=5),
+    window_after: timedelta = timedelta(minutes=5),
+) -> tuple[dict[str, int], dict[str, bool]]:
+    """Real-data counterpart to label_step() (see
+    docs/Real_Data_Retraining_Plan.md) -- a real IncidentLabel has no
+    fault_onset_step/cascade_step ramp, only a wall-clock occurred_at, so this
+    marks a node positive when an incident for it falls within
+    [step_start - window_before, step_end + window_after]. Deliberately
+    node-local: unlike label_step's affected_nodes() propagation to
+    predecessors, there's no verified basis for assuming a real incident
+    cascades to callers the same way the synthetic scenarios were calibrated
+    to. A step with no wall-clock bounds (occurred_at wasn't recorded for its
+    events) can't be judged against any window, so it's marked unusable
+    entirely rather than silently labeled 0."""
+    labels = {n: 0 for n in node_order}
+    usable = {n: True for n in node_order}
+
+    if step_start is None or step_end is None:
+        usable = {n: False for n in node_order}
+        return labels, usable
+
+    window_start = step_start - window_before
+    window_end = step_end + window_after
+    for node_name, occurred_at in incidents:
+        if node_name in labels and window_start <= occurred_at <= window_end:
+            labels[node_name] = 1
 
     return labels, usable

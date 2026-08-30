@@ -12,6 +12,7 @@ import functools
 import time
 from collections.abc import Callable
 from contextlib import contextmanager
+from datetime import datetime, timezone
 
 from cascaid.ingestion.runtime_context import current_node, current_run_id, current_step
 from cascaid.ingestion.schema import CallEvent, NodeType
@@ -54,6 +55,7 @@ def observe_vector_query(
             error=error,
             retried=False,
             token_cost=0.0,
+            occurred_at=datetime.now(timezone.utc),
         )
 
 
