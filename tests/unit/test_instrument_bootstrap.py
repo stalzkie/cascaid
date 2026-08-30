@@ -9,6 +9,7 @@ import json
 import pytest
 
 import cascaid._instrument_bootstrap as bootstrap_module
+import cascaid.ingestion.crewai_adapter as crewai_adapter
 import cascaid.ingestion.langgraph_adapter as langgraph_adapter
 import cascaid.ingestion.litellm_adapter as litellm_adapter
 import cascaid.ingestion.vector_query_adapter as vector_query_adapter
@@ -35,7 +36,7 @@ def test_bootstrap_sets_current_run_id_from_env(monkeypatch):
     monkeypatch.delenv("CASCAID_EVENTS_PATH", raising=False)
     monkeypatch.setattr(
         "cascaid.ingestion.stack_detector.detect_stack",
-        lambda: DetectedStack(orchestrator=None, model_gateway=None, vector_db=None),
+        lambda: DetectedStack(orchestrators=frozenset(), model_gateway=None, vector_db=None),
     )
 
     bootstrap_module.bootstrap()
@@ -57,7 +58,7 @@ def test_bootstrap_registers_langgraph_instrumentation_when_detected(monkeypatch
 
     monkeypatch.setattr(
         "cascaid.ingestion.stack_detector.detect_stack",
-        lambda: DetectedStack(orchestrator="langgraph", model_gateway=None, vector_db=None),
+        lambda: DetectedStack(orchestrators=frozenset({"langgraph"}), model_gateway=None, vector_db=None),
     )
 
     bootstrap_module.bootstrap()
@@ -66,6 +67,59 @@ def test_bootstrap_registers_langgraph_instrumentation_when_detected(monkeypatch
     captured["sink"]({"planner": NodeType.AGENT}, [])
     written = json.loads(events_path.read_text(encoding="utf-8").splitlines()[0])
     assert written["type"] == "topology"
+
+
+def test_bootstrap_registers_crewai_instrumentation_when_detected(monkeypatch, tmp_path):
+    events_path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("CASCAID_RUN_ID", "run-1")
+    monkeypatch.setenv("CASCAID_EVENTS_PATH", str(events_path))
+
+    captured = {}
+    monkeypatch.setattr(crewai_adapter, "instrument_crewai", lambda topology_sink: captured.update(sink=topology_sink))
+
+    from cascaid.ingestion.stack_detector import DetectedStack
+
+    monkeypatch.setattr(
+        "cascaid.ingestion.stack_detector.detect_stack",
+        lambda: DetectedStack(orchestrators=frozenset({"crewai"}), model_gateway=None, vector_db=None),
+    )
+
+    bootstrap_module.bootstrap()
+
+    assert "sink" in captured
+    captured["sink"]({"researcher (0)": NodeType.AGENT}, [])
+    written = json.loads(events_path.read_text(encoding="utf-8").splitlines()[0])
+    assert written["type"] == "topology"
+
+
+def test_bootstrap_registers_both_orchestrators_when_both_are_available(monkeypatch, tmp_path):
+    # Regression test: cascaid's own hard dependency on langgraph (for `cascaid
+    # demo`) means langgraph is importable in every real install, so orchestrator
+    # detection must not be exclusive -- a customer whose app only uses CrewAI
+    # still needs it instrumented even though langgraph is also present.
+    events_path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("CASCAID_RUN_ID", "run-1")
+    monkeypatch.setenv("CASCAID_EVENTS_PATH", str(events_path))
+
+    captured = {}
+    monkeypatch.setattr(
+        langgraph_adapter, "instrument_langgraph", lambda topology_sink: captured.update(langgraph=topology_sink)
+    )
+    monkeypatch.setattr(
+        crewai_adapter, "instrument_crewai", lambda topology_sink: captured.update(crewai=topology_sink)
+    )
+
+    from cascaid.ingestion.stack_detector import DetectedStack
+
+    monkeypatch.setattr(
+        "cascaid.ingestion.stack_detector.detect_stack",
+        lambda: DetectedStack(orchestrators=frozenset({"langgraph", "crewai"}), model_gateway=None, vector_db=None),
+    )
+
+    bootstrap_module.bootstrap()
+
+    assert "langgraph" in captured
+    assert "crewai" in captured
 
 
 def test_bootstrap_registers_litellm_callbacks_when_detected(monkeypatch, tmp_path):
@@ -80,7 +134,7 @@ def test_bootstrap_registers_litellm_callbacks_when_detected(monkeypatch, tmp_pa
 
     monkeypatch.setattr(
         "cascaid.ingestion.stack_detector.detect_stack",
-        lambda: DetectedStack(orchestrator=None, model_gateway="litellm", vector_db=None),
+        lambda: DetectedStack(orchestrators=frozenset(), model_gateway="litellm", vector_db=None),
     )
 
     bootstrap_module.bootstrap()
@@ -100,7 +154,7 @@ def test_bootstrap_registers_pinecone_callbacks_when_detected(monkeypatch, tmp_p
 
     monkeypatch.setattr(
         "cascaid.ingestion.stack_detector.detect_stack",
-        lambda: DetectedStack(orchestrator=None, model_gateway=None, vector_db="pinecone"),
+        lambda: DetectedStack(orchestrators=frozenset(), model_gateway=None, vector_db="pinecone"),
     )
 
     bootstrap_module.bootstrap()
@@ -120,7 +174,7 @@ def test_bootstrap_registers_weaviate_callbacks_when_detected(monkeypatch, tmp_p
 
     monkeypatch.setattr(
         "cascaid.ingestion.stack_detector.detect_stack",
-        lambda: DetectedStack(orchestrator=None, model_gateway=None, vector_db="weaviate"),
+        lambda: DetectedStack(orchestrators=frozenset(), model_gateway=None, vector_db="weaviate"),
     )
 
     bootstrap_module.bootstrap()
