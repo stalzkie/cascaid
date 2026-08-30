@@ -1,3 +1,7 @@
+## Decision priorities
+
+Every design, scope, and build-vs-integrate decision in this project is judged against four criteria: **effectiveness** (does it solve the real problem), **efficiency** (lowest cost to build and maintain), **accuracy** (correct, verifiable behavior), and **UX** (simple and pleasant for whoever consumes it — end user or integrator). When these trade off against each other, prefer the option that scores well across all four over one that maximizes a single criterion at the others' expense — e.g. don't build the more "complete" or "standard" solution if it costs materially more effort for the same effectiveness and UX.
+
 ## graphify
 
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.

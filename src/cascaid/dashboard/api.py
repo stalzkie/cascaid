@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from cascaid.auth.dependency import make_require_auth
 from cascaid.auth.passwords import verify_password
+from cascaid.dashboard.grafana import grafana_query, grafana_search
 from cascaid.dashboard.views import list_runs_view, pipeline_view, track_record_view
 from cascaid.storage.repository import create_session, delete_session, get_config
 
@@ -23,6 +24,14 @@ SESSION_LIFETIME = timedelta(hours=24)
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+class GrafanaTarget(BaseModel):
+    target: str
+
+
+class GrafanaQueryRequest(BaseModel):
+    targets: list[GrafanaTarget]
 
 
 def create_app(store_dir: str | Path, session_factory: sessionmaker[Session]) -> FastAPI:
@@ -78,5 +87,23 @@ def create_app(store_dir: str | Path, session_factory: sessionmaker[Session]) ->
     def track_record(run_id: str):
         with session_factory() as session:
             return track_record_view(session, run_id)
+
+    # SimPod-json-datasource/Infinity-compatible endpoints (PRD 4.7): lets a Grafana
+    # panel query Cascaid via an existing community JSON datasource plugin, no custom
+    # Grafana plugin to build/sign. See dashboard/grafana.py.
+    @app.get("/grafana/", dependencies=[Depends(require_auth)])
+    def grafana_test_connection_route():
+        return {"status": "ok"}
+
+    @app.post("/grafana/search", dependencies=[Depends(require_auth)])
+    def grafana_search_route():
+        return grafana_search(store_dir)
+
+    @app.post("/grafana/query", dependencies=[Depends(require_auth)])
+    def grafana_query_route(body: GrafanaQueryRequest):
+        try:
+            return grafana_query(session_factory, [t.target for t in body.targets])
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return app
