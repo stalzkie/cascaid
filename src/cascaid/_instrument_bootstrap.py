@@ -44,10 +44,14 @@ def bootstrap() -> None:
     events_path = os.environ.get("CASCAID_EVENTS_PATH")
     stack = detect_stack()
 
-    if stack.orchestrator == "langgraph":
+    if "langgraph" in stack.orchestrators:
         from cascaid.ingestion.langgraph_adapter import instrument_langgraph
 
         instrument_langgraph(topology_sink=_topology_sink(events_path) if events_path else (lambda n, e: None))
+    if "crewai" in stack.orchestrators:
+        from cascaid.ingestion.crewai_adapter import instrument_crewai
+
+        instrument_crewai(topology_sink=_topology_sink(events_path) if events_path else (lambda n, e: None))
 
     if stack.model_gateway == "litellm":
         from cascaid.ingestion.litellm_adapter import register_litellm_callbacks
