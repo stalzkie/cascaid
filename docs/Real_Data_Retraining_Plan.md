@@ -75,11 +75,20 @@ training pipeline needs to treat as optional forever, not clean up later.
    automatically off `drift.py`'s existing PSI check is a natural
    fast-follow once the manual command is proven -- not a prerequisite.
 
-## What I need from you
+## Decision: approved and built
 
-Whether to make the `CallEvent`/`Snapshot` schema change described above.
-It's backward-compatible (additive, optional field) but it's still a
-change to a format already in a public release, and it's the actual
-prerequisite for real-data retraining -- everything else in this plan is
-normal engineering once that's decided. I didn't implement it without
-checking first.
+Confirmed: add the `CallEvent.occurred_at` field. Built as proposed above --
+`occurred_at` on `CallEvent` (populated by `litellm_adapter.py`/
+`vector_query_adapter.py` at observation time via `datetime.now(timezone.utc)`,
+not litellm's own `start_time`/`end_time`, which are naive local-clock values
+with no guaranteed timezone), `step_start`/`step_end` on `Snapshot` and the
+PyG `Data` object, `label_step_from_incidents()` in `ingestion/labeling.py`
+(node-local only, per the reasoning above), and `cascaid/retrain.py`
+(`build_real_dataset`/`retrain`/`should_swap_model`), wired into the CLI as
+`cascaid retrain`. One real bug surfaced by the e2e test while building
+this: SQLite (unlike Postgres) drops tzinfo on a `DateTime(timezone=True)`
+column round trip, so `IncidentLabel.occurred_at` came back naive under the
+test suite's sqlite backend and couldn't be compared against the (tz-aware)
+step window -- fixed the same way `repository.py`'s session-expiry check
+already handles this exact SQLite quirk (`replace(tzinfo=timezone.utc)` if
+naive).

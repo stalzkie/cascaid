@@ -85,6 +85,21 @@ def test_main_dispatches_ingest_with_passthrough_args_as_argv(monkeypatch):
     assert captured["argv"] == ["ingest", "--events", "data/live/run-1.jsonl", "--store", "data/graph_store"]
 
 
+def test_main_dispatches_retrain_with_passthrough_args_as_argv(monkeypatch):
+    captured: dict[str, list[str]] = {}
+
+    def fake_main():
+        import sys as sys_
+
+        captured["argv"] = list(sys_.argv)
+
+    monkeypatch.setattr(cli.retrain_cli, "main", fake_main)
+
+    cli.main(["retrain", "--database-url", "sqlite:///x.db", "--store", "data/graph_store"])
+
+    assert captured["argv"] == ["retrain", "--database-url", "sqlite:///x.db", "--store", "data/graph_store"]
+
+
 def test_main_dispatches_auth_configure_with_passthrough_args_as_argv(monkeypatch):
     captured: dict[str, list[str]] = {}
 

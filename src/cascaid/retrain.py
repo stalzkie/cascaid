@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import argparse
 import math
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import torch
@@ -108,8 +108,17 @@ def main():
     session_factory = make_session_factory(args.database_url)
     with session_factory() as session:
         run_ids = list_runs(args.store)
+
+        # SQLite (unlike Postgres) doesn't preserve tzinfo on a DateTime(timezone=True)
+        # column round trip -- same fix as repository.py's session-expiry check.
+        def _as_utc(occurred_at: datetime) -> datetime:
+            return occurred_at if occurred_at.tzinfo else occurred_at.replace(tzinfo=timezone.utc)
+
         incidents_by_run = {
-            run_id: [(incident.node_name, incident.occurred_at) for incident in get_incidents(session, run_id=run_id)]
+            run_id: [
+                (incident.node_name, _as_utc(incident.occurred_at))
+                for incident in get_incidents(session, run_id=run_id)
+            ]
             for run_id in run_ids
         }
 

@@ -147,13 +147,16 @@ is a natural fast-follow once the manual command is proven, not a
 prerequisite for it.
 
 **Update**: investigated before writing code, and this turned out to need a
-schema decision, not just plumbing -- `CallEvent`/`Snapshot` carry no
-wall-clock timestamp today, only a sequential step index, so there's
-currently no way to map a real `IncidentLabel.occurred_at` onto a specific
-snapshot step. See `Real_Data_Retraining_Plan.md` for the full finding, the
-proposed (backward-compatible, additive) schema change, and the one
-decision I'm surfacing rather than guessing on: whether to make that change
-to a format `cascaid==0.2.0` already ships publicly.
+schema decision, not just plumbing -- `CallEvent`/`Snapshot` carried no
+wall-clock timestamp, only a sequential step index, so there was no way to
+map a real `IncidentLabel.occurred_at` onto a specific snapshot step. See
+`Real_Data_Retraining_Plan.md` for the full finding and the proposed
+(backward-compatible, additive) schema change -- approved and built:
+`CallEvent.occurred_at` (optional), `Snapshot`/`Data.step_start`/`step_end`,
+a node-local real-incident labeling function
+(`label_step_from_incidents`), and `cascaid retrain` (`cascaid/retrain.py`),
+which only swaps the served model when the new one's held-out PR-AUC clears
+`--min-pr-auc`.
 
 ## 4. One thing that needs your call, not mine
 

@@ -85,7 +85,9 @@ def test_label_step_from_incidents_marks_node_positive_within_window():
 
 def test_label_step_from_incidents_ignores_incidents_outside_window():
     incident_far_away = T0 + timedelta(hours=1)
-    labels, _ = label_step_from_incidents(NODE_ORDER, [("primary_model", incident_far_away)], step_start=T0, step_end=T0)
+    labels, _ = label_step_from_incidents(
+        NODE_ORDER, [("primary_model", incident_far_away)], step_start=T0, step_end=T0
+    )
 
     assert labels["primary_model"] == 0
 
