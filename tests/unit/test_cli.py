@@ -142,6 +142,50 @@ def test_main_dispatches_drift_with_passthrough_args_as_argv(monkeypatch):
     ]
 
 
+def test_main_dispatches_import_langfuse_with_passthrough_args_as_argv(monkeypatch):
+    captured: dict[str, list[str]] = {}
+
+    def fake_main():
+        import sys as sys_
+
+        captured["argv"] = list(sys_.argv)
+
+    monkeypatch.setattr(cli.import_langfuse_cli, "main", fake_main)
+
+    cli.main(
+        [
+            "import",
+            "langfuse",
+            "--file",
+            "scores.json",
+            "--database-url",
+            "sqlite:///x.db",
+            "--run-id",
+            "run-1",
+            "--node-name",
+            "agent-checkout",
+        ]
+    )
+
+    assert captured["argv"] == [
+        "import langfuse",
+        "--file",
+        "scores.json",
+        "--database-url",
+        "sqlite:///x.db",
+        "--run-id",
+        "run-1",
+        "--node-name",
+        "agent-checkout",
+    ]
+
+
+def test_main_exits_nonzero_for_an_unknown_import_subcommand():
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(["import", "not-a-real-source"])
+    assert exc_info.value.code != 0
+
+
 def test_main_dispatches_run_by_launching_the_target_as_an_instrumented_subprocess(monkeypatch, tmp_path):
     captured = {}
 
