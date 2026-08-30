@@ -54,6 +54,14 @@ def test_demo_and_train_cli_run_end_to_end(tmp_path, monkeypatch):
     state_dict = torch.load(model_path, weights_only=True)
     assert len(state_dict) > 0
 
+    from cascaid.ingestion.schema import FEATURE_NAMES
+    from cascaid.serving.drift import load_reference
+
+    reference_path = model_path.with_suffix(".drift_reference.json")
+    assert reference_path.exists()
+    reference = load_reference(reference_path)
+    assert set(reference.keys()) == set(FEATURE_NAMES)
+
 
 @pytest.mark.e2e
 def test_train_cli_is_reproducible_given_the_same_seed(tmp_path, monkeypatch):
