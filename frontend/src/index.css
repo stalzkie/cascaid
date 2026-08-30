@@ -1,60 +1,182 @@
 :root {
   color-scheme: light;
-  --surface: #fcfcfb;
-  --page: #f9f9f7;
-  --text-primary: #0b0b0b;
-  --text-secondary: #52514e;
-  --muted: #898781;
-  --gridline: #e1e0d9;
+  /* Neutral ladder matches LangFuse's shipped shadcn "slate" tokens
+     (docs/LangFuse_Design_Research.md S2/S8) -- white-on-white surfaces,
+     elevation from a hairline border rather than a darker fill. */
+  --page: #ffffff;
+  --surface: #ffffff;
+  --surface-muted: #f1f5f9;
+  --text-primary: #020817;
+  --text-secondary: #64748b;
+  --muted: #929caa;
+  --gridline: #e2e8f0;
+  --border: #e2e8f0;
+  --border-strong: #c2cbd6;
 
-  --pg-edge: #c3c2b7;
-  --pg-node-stroke: #0b0b0b;
-  --pg-text: #52514e;
-  --trc-grid: #e1e0d9;
-  --trc-muted: #898781;
+  --pg-node-bg: #ffffff;
+  --pg-node-border: #e2e8f0;
+  --pg-edge: #c2cbd6;
+  --pg-dot: #e2e8f0;
+  --pg-text: #64748b;
+  --pg-canvas: #fafafa;
+  --trc-grid: #e2e8f0;
+  --trc-muted: #929caa;
 
-  --accent: #2a78d6;
+  --accent: #4f46e5;
+  --accent-soft: rgba(79, 70, 229, 0.08);
+  --accent-ink: #ffffff;
   --accent-active: #0ca30c;
+
+  /* Node-type identity -- distinct from the status ramp below, validated
+     all-pairs CVD-safe with scripts/validate_palette.js (dataviz skill).
+     vector_store deliberately gets no hue (composite: shape + neutral ink)
+     because a 4th all-pairs-safe hue that also stays clear of the warm
+     status ramp doesn't exist in the palette -- see palette.md. */
+  --node-agent: #2a78d6;
+  --node-tool: #1baf7a;
+  --node-model: #c98500;
+  --node-vector: #565a6e;
+  --node-ink: #ffffff;
+
+  /* Status palette (fixed -- never themed, never reused for identity) */
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #d03b3b;
+  --status-unscored: #8b8fa3;
+
+  /* Chart series -- same fixed categorical order as node-type colors avoid,
+     swapped per theme so line charts stay legible in dark mode too. */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+  --series-4: #eda100;
+  --series-5: #e87ba4;
+  --series-6: #008300;
+  --series-7: #4a3aa7;
+  --series-8: #e34948;
+
+  /* LangFuse's actual shadcn radius scale (unmodified default), not a
+     from-scratch "sharp" invention -- Card 8px, Button/Badge/Input 6px,
+     smallest control state 4px, tables/canvas 0px (research S1). No pill
+     token: LangFuse has no rounded-full badge/chip anywhere, so chips here
+     use --radius-md like everything else; the one deliberate exception is
+     the auto-refresh toggle track, which stays a hardcoded pill because
+     it's a physical switch affordance, not a brand shape. */
+  --radius-lg: 8px;
+  --radius-md: 6px;
+  --radius-sm: 4px;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.05);
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  --font-sans: ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     color-scheme: dark;
-    --surface: #1a1a19;
-    --page: #0d0d0d;
-    --text-primary: #ffffff;
-    --text-secondary: #c3c2b7;
-    --muted: #898781;
-    --gridline: #2c2c2a;
+    /* LangFuse's dark ladder is not an inverted light palette -- each
+       surface tier gets one step lighter (research S2 dark table), and
+       body text is deliberately capped at ~70% gray, never near-white. */
+    --page: #0f0f0f;
+    --surface: #131313;
+    --surface-muted: #1c1c1c;
+    --text-primary: #b3b3b3;
+    --text-secondary: #8f8f8f;
+    --muted: #6e6e6e;
+    --gridline: #262626;
+    --border: #262626;
+    --border-strong: #3a3a3a;
 
-    --pg-edge: #383835;
-    --pg-node-stroke: #ffffff;
-    --pg-text: #c3c2b7;
-    --trc-grid: #2c2c2a;
-    --trc-muted: #898781;
+    --pg-node-bg: #131313;
+    --pg-node-border: #262626;
+    --pg-edge: #3a3a3a;
+    --pg-dot: #1c1c1c;
+    --pg-text: #8f8f8f;
+    --pg-canvas: #0f0f0f;
+    --trc-grid: #262626;
+    --trc-muted: #6e6e6e;
 
-    --accent: #3987e5;
+    --accent: #818cf8;
+    --accent-soft: rgba(129, 140, 248, 0.14);
+    --accent-ink: #0a0a0c;
     --accent-active: #0ca30c;
+
+    --node-agent: #3987e5;
+    --node-tool: #199e70;
+    --node-model: #eda100;
+    --node-vector: #b7bad0;
+    --node-ink: #0a0a0c;
+
+    --status-good: #0ca30c;
+    --status-warning: #fab219;
+    --status-serious: #ec835a;
+    --status-critical: #e66767;
+    --status-unscored: #82869c;
+
+    --series-1: #3987e5;
+    --series-2: #d95926;
+    --series-3: #199e70;
+    --series-4: #c98500;
+    --series-5: #d55181;
+    --series-6: #008300;
+    --series-7: #9085e9;
+    --series-8: #e66767;
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+    --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.35);
   }
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --surface: #1a1a19;
-  --page: #0d0d0d;
-  --text-primary: #ffffff;
-  --text-secondary: #c3c2b7;
-  --muted: #898781;
-  --gridline: #2c2c2a;
+  --page: #0a0a0c;
+  --surface: #131317;
+  --surface-muted: #1a1a20;
+  --text-primary: #f4f5f9;
+  --text-secondary: #b7bad0;
+  --muted: #82869c;
+  --gridline: #232430;
+  --border: #232430;
+  --border-strong: #333544;
 
-  --pg-edge: #383835;
-  --pg-node-stroke: #ffffff;
-  --pg-text: #c3c2b7;
-  --trc-grid: #2c2c2a;
-  --trc-muted: #898781;
+  --pg-node-bg: #131317;
+  --pg-node-border: #232430;
+  --pg-edge: #333544;
+  --pg-dot: #1e1f29;
+  --pg-text: #b7bad0;
+  --pg-canvas: #101014;
+  --trc-grid: #232430;
+  --trc-muted: #82869c;
 
-  --accent: #3987e5;
+  --accent: #818cf8;
+  --accent-soft: rgba(129, 140, 248, 0.14);
+  --accent-ink: #0a0a0c;
   --accent-active: #0ca30c;
+
+  --node-agent: #3987e5;
+  --node-tool: #199e70;
+  --node-model: #eda100;
+  --node-vector: #b7bad0;
+  --node-ink: #0a0a0c;
+
+  --status-good: #0ca30c;
+  --status-warning: #fab219;
+  --status-serious: #ec835a;
+  --status-critical: #e66767;
+  --status-unscored: #82869c;
+
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+  --series-4: #c98500;
+  --series-5: #d55181;
+  --series-6: #008300;
+  --series-7: #9085e9;
+  --series-8: #e66767;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.6), 0 1px 2px rgba(0, 0, 0, 0.4);
 }
 
 * {
@@ -63,80 +185,557 @@
 
 body {
   margin: 0;
+  min-height: 100vh;
   background: var(--page);
   color: var(--text-primary);
-  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
+  font-size: 14.4px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 .app {
-  max-width: 960px;
+  max-width: 1180px;
   margin: 0 auto;
-  padding: 24px;
+  padding: 32px 24px 64px;
 }
 
-.app form {
+/* ── Header ─────────────────────────────────────────────────────────── */
+
+.app-header {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 24px;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
 }
 
-.app section {
-  background: var(--surface);
-  border: 1px solid var(--gridline);
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 24px;
-}
-
-.app h2 {
-  margin-top: 0;
-  color: var(--text-secondary);
-  font-size: 14px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.run-list {
-  list-style: none;
+.app-header h1 {
   margin: 0;
-  padding: 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.run-list-item {
-  font: inherit;
-  background: var(--page);
-  color: var(--text-primary);
-  border: 1px solid var(--gridline);
-  border-radius: 6px;
-  padding: 6px 12px;
-  cursor: pointer;
-}
-
-.run-list-item:hover {
-  border-color: var(--accent);
-}
-
-.run-list-item.active {
-  border-color: var(--accent-active);
-  color: var(--accent-active);
+  font-size: 20px;
   font-weight: 600;
+  letter-spacing: -0.01em;
 }
 
-.auto-refresh-toggle {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 13px;
-  color: var(--text-secondary);
-  margin-left: auto;
+.app-header .eyebrow {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  margin-bottom: 4px;
 }
 
 .last-updated {
   font-size: 12px;
   color: var(--muted);
-  margin: -12px 0 12px;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+/* ── Status summary strip ──────────────────────────────────────────── */
+
+.status-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.status-tile {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  padding: 13px 15px;
+}
+
+.status-tile-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: currentColor;
+}
+
+.status-tile-count {
+  font-size: 19px;
+  font-weight: 600;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+}
+
+.status-tile-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+/* ── Run picker ─────────────────────────────────────────────────────── */
+
+.run-picker {
+  margin-bottom: 24px;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 6px 8px 6px 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+.toolbar input[type="text"] {
+  flex: 1;
+  min-width: 160px;
+  border: none;
+  outline: none;
+  background: transparent;
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-primary);
+  padding: 8px 0;
+}
+
+.toolbar input[type="text"]::placeholder {
+  color: var(--muted);
+  font-family: var(--font-sans);
+}
+
+.btn {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  padding: 8px 14px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: opacity 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+  white-space: nowrap;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn-primary {
+  background: var(--text-primary);
+  color: var(--page);
+}
+
+.btn-primary:not(:disabled):hover {
+  opacity: 0.85;
+}
+
+.btn-secondary {
+  background: var(--surface);
+  color: var(--text-secondary);
+  border-color: var(--border);
+}
+
+.btn-secondary:not(:disabled):hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.auto-refresh-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-left: auto;
+  padding-right: 4px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle-switch {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  width: 32px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--gridline);
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s ease;
+  flex-shrink: 0;
+}
+
+.toggle-switch::before {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: var(--shadow-sm);
+  transition: transform 0.15s ease;
+}
+
+.toggle-switch:checked {
+  background: var(--accent-active);
+}
+
+.toggle-switch:checked::before {
+  transform: translateX(14px);
+}
+
+/* Bounded, scrollable, filterable list -- the fix for "too many runs":
+   a flat wrap of pills grows without limit; this caps at a fixed height
+   with its own scrollbar and lets the toolbar input above filter it live. */
+.run-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 4px;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.run-list-item {
+  display: block;
+  width: 100%;
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  text-align: left;
+  background: transparent;
+  color: var(--text-secondary);
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  cursor: pointer;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+
+.run-list-item:hover {
+  background: var(--surface-muted);
+  color: var(--text-primary);
+}
+
+.run-list-item.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.run-list-empty {
+  padding: 14px 10px;
+  font-size: 12.5px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.empty-note {
+  font-size: 13px;
+  color: var(--muted);
+  margin: 0 0 20px;
+}
+
+.empty-note code {
+  background: var(--gridline);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+/* ── Sections / cards ───────────────────────────────────────────────── */
+
+.section-eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin: 0 0 12px;
+}
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.card > .section-eyebrow {
+  padding: 0 4px;
+}
+
+[role="alert"] {
+  background: #fdecec;
+  border: 1px solid #f3b9b9;
+  color: #8a1f1f;
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  font-size: 13px;
+  margin-bottom: 20px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) [role="alert"] {
+    background: #2a1414;
+    border-color: #5a2222;
+    color: #f3b9b9;
+  }
+}
+:root[data-theme="dark"] [role="alert"] {
+  background: #2a1414;
+  border-color: #5a2222;
+  color: #f3b9b9;
+}
+
+/* ── Pipeline graph legend (node-type key) ────────────────────────────── */
+
+.pg-legend {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  list-style: none;
+  padding: 0 4px;
+  margin: 0 0 14px;
+}
+
+.pg-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.pg-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.pg-collapse-toggle {
+  cursor: pointer;
+}
+
+.pg-collapse-toggle:hover circle {
+  stroke: var(--accent);
+}
+
+.pg-collapse-toggle:focus-visible circle {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+/* ── Bottom panel row (track record + node status, side by side) ────── */
+
+.bottom-row {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr;
+  gap: 20px;
+  align-items: start;
+}
+
+.bottom-row .card {
+  margin-bottom: 0;
+}
+
+@media (max-width: 860px) {
+  .bottom-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ── Node status table ─────────────────────────────────────────────── */
+
+.node-status-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12.5px;
+}
+
+.node-status-table th {
+  text-align: left;
+  font-size: 10.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  padding: 0 10px 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.node-status-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.node-status-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.node-status-table tbody tr:hover {
+  background: var(--surface-muted);
+}
+
+.node-status-table-name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.node-status-table-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2.5px;
+  flex-shrink: 0;
+}
+
+.node-status-table-muted {
+  color: var(--text-secondary);
+}
+
+.node-status-table-score {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* LangFuse badges are a light tinted fill + full-strength text, never a
+   bordered outline (research S2/S6) -- background is the status color at
+   low opacity via color-mix, so it tracks the same hex through both themes
+   without a second per-status token. */
+.node-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--pill-color) 14%, var(--surface));
+}
+
+.node-status-pill-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── Track record chart ─────────────────────────────────────────────── */
+
+.trc-legend {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  list-style: none;
+  padding: 0;
+  margin: 14px 0 0;
+}
+
+.trc-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 4px 10px 4px 8px;
+}
+
+/* ── Login screen ───────────────────────────────────────────────────── */
+
+.login-screen {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.login-card {
+  width: 100%;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.login-card h1 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.login-card label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.login-card input {
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  outline: none;
+}
+
+.login-card input:focus {
+  border-color: var(--accent);
+}
+
+.login-card .btn {
+  margin-top: 8px;
+}
+
+.trc-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
 }

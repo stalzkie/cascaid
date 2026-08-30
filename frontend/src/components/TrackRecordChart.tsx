@@ -18,7 +18,11 @@ export function TrackRecordChart({ history, incidents }: Props) {
   const plotHeight = HEIGHT - PAD.top - PAD.bottom;
 
   if (series.length === 0) {
-    return <p role="status">No risk history recorded yet for this run.</p>;
+    return (
+      <p role="status" className="empty-note">
+        No risk history recorded yet for this run.
+      </p>
+    );
   }
 
   const allX = series.flatMap((s) => s.points.map((p) => p.x)).concat(incidents.map((i) => Date.parse(i.occurred_at)));
@@ -56,6 +60,8 @@ export function TrackRecordChart({ history, incidents }: Props) {
               fill="none"
               stroke={s.color}
               strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
               points={s.points.map((p) => `${x(p.x)},${y(p.y)}`).join(" ")}
             />
             {s.points.map((p, i) => (
@@ -66,16 +72,16 @@ export function TrackRecordChart({ history, incidents }: Props) {
           </g>
         ))}
       </svg>
-      <ul style={{ display: "flex", gap: 16, flexWrap: "wrap", listStyle: "none", padding: 0, fontSize: 12 }}>
+      <ul className="trc-legend">
         {series.map((s) => (
-          <li key={s.name} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ width: 10, height: 10, background: s.color, display: "inline-block", borderRadius: 2 }} />
+          <li key={s.name} className="trc-legend-item">
+            <span className="trc-swatch" style={{ background: s.color }} />
             {s.name}
           </li>
         ))}
         {incidents.length > 0 && (
-          <li style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <span style={{ width: 10, height: 10, background: INCIDENT_COLOR, display: "inline-block", borderRadius: 2 }} />
+          <li className="trc-legend-item">
+            <span className="trc-swatch" style={{ background: INCIDENT_COLOR }} />
             Incident
           </li>
         )}

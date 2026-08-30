@@ -5,11 +5,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy.orm import Session, sessionmaker
 
 from cascaid.alerting.dispatch import send_webhook
 from cascaid.alerting.rules import evaluate_risk
+from cascaid.auth.dependency import make_require_auth
 from cascaid.ingestion.graph_store import latest_snapshot
 from cascaid.models.gnn import CascadeGNN
 from cascaid.serving.risk import predict_risk
@@ -41,12 +42,16 @@ def create_app(
     session_factory: sessionmaker[Session] | None = None,
 ) -> FastAPI:
     app = FastAPI()
+    # No --database-url means no place to store a validatable session (see
+    # cascaid.auth.dependency), so an ephemeral, unpersisted `cascaid serve` stays
+    # open, same as it was before auth existed.
+    auth_dependencies = [Depends(make_require_auth(session_factory))] if session_factory is not None else []
 
     @app.get("/health")
     def health():
         return {"status": "ok"}
 
-    @app.get("/risk/{run_id}")
+    @app.get("/risk/{run_id}", dependencies=auth_dependencies)
     def risk(run_id: str):
         data = latest_snapshot(store_dir, run_id)
         if data is None:

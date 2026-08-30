@@ -1,14 +1,17 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 
 from cascaid.storage.repository import (
+    create_session,
+    delete_session,
     get_alert_history,
     get_config,
     get_incidents,
     get_latest_scores,
     get_score_history,
+    get_session,
     init_db,
     record_alert,
     record_incident,
@@ -98,3 +101,38 @@ def test_set_config_then_get_config_returns_updated_value():
     set_config(session, "alerting_enabled", "false")
 
     assert get_config(session, "alerting_enabled") == "false"
+
+
+def test_create_session_then_get_session_round_trips_the_token():
+    session = _session()
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+
+    create_session(session, token="tok-123", expires_at=expires_at)
+
+    found = get_session(session, "tok-123")
+    assert found is not None
+    assert found.token == "tok-123"
+
+
+def test_get_session_returns_none_for_an_expired_token():
+    session = _session()
+    expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    create_session(session, token="tok-expired", expires_at=expires_at)
+
+    assert get_session(session, "tok-expired") is None
+
+
+def test_get_session_returns_none_for_an_unknown_token():
+    session = _session()
+
+    assert get_session(session, "no-such-token") is None
+
+
+def test_delete_session_removes_it():
+    session = _session()
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=1)
+    create_session(session, token="tok-123", expires_at=expires_at)
+
+    delete_session(session, "tok-123")
+
+    assert get_session(session, "tok-123") is None

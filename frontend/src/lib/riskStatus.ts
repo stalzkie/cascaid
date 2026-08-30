@@ -17,6 +17,10 @@ const STATUS: Record<RiskBand, { color: string; label: string }> = {
   critical: { color: "#d03b3b", label: "Critical risk" },
 };
 
+export function statusForBand(band: RiskBand): RiskStatus {
+  return { band, ...STATUS[band] };
+}
+
 export function riskStatus(score: number | null): RiskStatus {
   let band: RiskBand;
   if (score === null) {
