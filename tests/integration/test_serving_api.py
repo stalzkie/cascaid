@@ -33,45 +33,10 @@ def _snapshot(run_id: str, step: int) -> Data:
     return data
 
 
-@pytest.mark.integration
-def test_health_endpoint_returns_ok(tmp_path):
-    torch.manual_seed(0)
-    app = create_app(model=None, store_dir=tmp_path)
-    client = TestClient(app)
-
-    response = client.get("/health")
-
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
-
-
-@pytest.mark.integration
-def test_risk_endpoint_returns_scores_for_latest_snapshot(tmp_path):
-    torch.manual_seed(0)
-    save_snapshot(_snapshot("run-1", step=0), tmp_path)
-    save_snapshot(_snapshot("run-1", step=1), tmp_path)
-    model = CascadeGNN(in_dim=IN_DIM, edge_dim=EDGE_DIM, hidden=8)
-    app = create_app(model=model, store_dir=tmp_path)
-    client = TestClient(app)
-
-    response = client.get("/risk/run-1")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["run_id"] == "run-1"
-    assert body["step"] == 1
-    assert set(body["scores"].keys()) == {"a", "b", "c"}
-    assert all(0.0 <= v <= 1.0 for v in body["scores"].values())
-
-
-@pytest.mark.integration
-def test_risk_endpoint_404_for_unknown_run(tmp_path):
-    app = create_app(model=None, store_dir=tmp_path)
-    client = TestClient(app)
-
-    response = client.get("/risk/no-such-run")
-
-    assert response.status_code == 404
+def _session_factory() -> sessionmaker:
+    engine = create_engine("sqlite:///:memory:", poolclass=StaticPool, connect_args={"check_same_thread": False})
+    init_db(engine)
+    return sessionmaker(bind=engine)
 
 
 def _login(client, session_factory, username="admin", password="hunter2") -> str:
@@ -87,14 +52,56 @@ def _login(client, session_factory, username="admin", password="hunter2") -> str
 
 
 @pytest.mark.integration
-def test_risk_endpoint_401s_without_a_token_when_persistence_is_configured(tmp_path):
+def test_health_endpoint_returns_ok(tmp_path):
+    torch.manual_seed(0)
+    app = create_app(model=None, store_dir=tmp_path, session_factory=_session_factory())
+    client = TestClient(app)
+
+    response = client.get("/health")
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+@pytest.mark.integration
+def test_risk_endpoint_returns_scores_for_latest_snapshot(tmp_path):
+    torch.manual_seed(0)
+    save_snapshot(_snapshot("run-1", step=0), tmp_path)
+    save_snapshot(_snapshot("run-1", step=1), tmp_path)
+    model = CascadeGNN(in_dim=IN_DIM, edge_dim=EDGE_DIM, hidden=8)
+    session_factory = _session_factory()
+    app = create_app(model=model, store_dir=tmp_path, session_factory=session_factory)
+    client = TestClient(app)
+    token = _login(client, session_factory)
+
+    response = client.get("/risk/run-1", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["run_id"] == "run-1"
+    assert body["step"] == 1
+    assert set(body["scores"].keys()) == {"a", "b", "c"}
+    assert all(0.0 <= v <= 1.0 for v in body["scores"].values())
+
+
+@pytest.mark.integration
+def test_risk_endpoint_404_for_unknown_run(tmp_path):
+    session_factory = _session_factory()
+    app = create_app(model=None, store_dir=tmp_path, session_factory=session_factory)
+    client = TestClient(app)
+    token = _login(client, session_factory)
+
+    response = client.get("/risk/no-such-run", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 404
+
+
+@pytest.mark.integration
+def test_risk_endpoint_401s_without_a_token(tmp_path):
     torch.manual_seed(0)
     save_snapshot(_snapshot("run-1", step=0), tmp_path)
     model = CascadeGNN(in_dim=IN_DIM, edge_dim=EDGE_DIM, hidden=8)
-    engine = create_engine("sqlite:///:memory:", poolclass=StaticPool, connect_args={"check_same_thread": False})
-    init_db(engine)
-    session_factory = sessionmaker(bind=engine)
-    app = create_app(model=model, store_dir=tmp_path, session_factory=session_factory)
+    app = create_app(model=model, store_dir=tmp_path, session_factory=_session_factory())
     client = TestClient(app)
 
     response = client.get("/risk/run-1")
@@ -103,28 +110,11 @@ def test_risk_endpoint_401s_without_a_token_when_persistence_is_configured(tmp_p
 
 
 @pytest.mark.integration
-def test_risk_endpoint_is_unauthenticated_when_no_database_is_configured(tmp_path):
-    # Deliberate: with no --database-url there is nowhere to store a validatable
-    # session, so cascaid serve without persistence stays open, same as today.
+def test_risk_endpoint_persists_scores(tmp_path):
     torch.manual_seed(0)
     save_snapshot(_snapshot("run-1", step=0), tmp_path)
     model = CascadeGNN(in_dim=IN_DIM, edge_dim=EDGE_DIM, hidden=8)
-    app = create_app(model=model, store_dir=tmp_path)
-    client = TestClient(app)
-
-    response = client.get("/risk/run-1")
-
-    assert response.status_code == 200
-
-
-@pytest.mark.integration
-def test_risk_endpoint_persists_scores_when_session_factory_given(tmp_path):
-    torch.manual_seed(0)
-    save_snapshot(_snapshot("run-1", step=0), tmp_path)
-    model = CascadeGNN(in_dim=IN_DIM, edge_dim=EDGE_DIM, hidden=8)
-    engine = create_engine("sqlite:///:memory:", poolclass=StaticPool, connect_args={"check_same_thread": False})
-    init_db(engine)
-    session_factory = sessionmaker(bind=engine)
+    session_factory = _session_factory()
     app = create_app(model=model, store_dir=tmp_path, session_factory=session_factory)
     client = TestClient(app)
     token = _login(client, session_factory)
@@ -143,9 +133,7 @@ def test_risk_endpoint_fires_alert_when_enabled_and_threshold_crossed(tmp_path, 
     torch.manual_seed(0)
     save_snapshot(_snapshot("run-1", step=0), tmp_path)
     model = CascadeGNN(in_dim=IN_DIM, edge_dim=EDGE_DIM, hidden=8)
-    engine = create_engine("sqlite:///:memory:", poolclass=StaticPool, connect_args={"check_same_thread": False})
-    init_db(engine)
-    session_factory = sessionmaker(bind=engine)
+    session_factory = _session_factory()
     with session_factory() as session:
         set_config(session, "alerting_enabled", "true")
         set_config(session, "alert_threshold", "0.0")
@@ -169,9 +157,7 @@ def test_risk_endpoint_does_not_alert_when_alerting_disabled(tmp_path, httpserve
     torch.manual_seed(0)
     save_snapshot(_snapshot("run-1", step=0), tmp_path)
     model = CascadeGNN(in_dim=IN_DIM, edge_dim=EDGE_DIM, hidden=8)
-    engine = create_engine("sqlite:///:memory:", poolclass=StaticPool, connect_args={"check_same_thread": False})
-    init_db(engine)
-    session_factory = sessionmaker(bind=engine)
+    session_factory = _session_factory()
     with session_factory() as session:
         set_config(session, "alert_threshold", "0.0")
         set_config(session, "alert_webhook_url", httpserver.url_for("/hook"))

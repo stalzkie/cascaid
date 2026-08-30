@@ -90,3 +90,56 @@ def test_serve_cli_serves_risk_for_a_persisted_snapshot(tmp_path, monkeypatch):
     with make_session_factory(database_url)() as session:
         history = get_score_history(session, run_id="serve-e2e-run")
     assert {row.node_name for row in history} == set(STATIC_NODES.keys())
+
+
+@pytest.mark.e2e
+def test_serve_cli_still_requires_auth_when_database_url_is_omitted(tmp_path, monkeypatch):
+    # Security regression test: `cascaid serve` with no --database-url is exactly
+    # the invocation shown in serve.py's own module docstring, and used to leave
+    # /risk/{run_id} completely unauthenticated (no place to store a session token).
+    # It must now provision its own store and keep auth enforced by default.
+    model_path = tmp_path / "models" / "pretrained_base.pt"
+    store_dir = tmp_path / "graph_store"
+    data_dir = tmp_path / "runs"
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["run_scenarios", "--runs-per-scenario", "3", "--steps", "20", "--out", str(data_dir), "--seed", "0"],
+    )
+    run_scenarios_cli.main()
+    monkeypatch.setattr(sys, "argv", ["train", "--data", str(data_dir), "--epochs", "3", "--out", str(model_path)])
+    train_cli.main()
+
+    rng = np.random.default_rng(3)
+    scenario = make_scenario("baseline", TOTAL_STEPS, rng)
+    recorder = Recorder()
+    graph = build_pipeline()
+    vector_store = VectorStore()
+    gateway = ModelGateway()
+    state = {"query": "", "retrieved_context": "", "research_notes": "", "answer": ""}
+    for step in range(TOTAL_STEPS):
+        config = {
+            "configurable": {
+                "recorder": recorder,
+                "scenario": scenario,
+                "step": step,
+                "rng": rng,
+                "vector_store": vector_store,
+                "gateway": gateway,
+                "run_id": "no-database-url-run",
+            }
+        }
+        state = graph.invoke(state, config=config)
+    snapshots = build_snapshots(STATIC_NODES, ALL_EDGES, recorder.events)
+    for snap in snapshots:
+        save_snapshot(to_pyg_data(snap), store_dir)
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["serve", "--model", str(model_path), "--store", str(store_dir)])
+    app = serve_cli.build_app_from_argv()
+    client = TestClient(app)
+
+    response = client.get("/risk/no-database-url-run")
+
+    assert response.status_code == 401
