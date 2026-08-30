@@ -128,6 +128,19 @@ Ranked by how many real pipelines each one likely affects:
 4. **Vector DB coverage stops at Pinecone and Weaviate** (auto-patched) and
    pgvector (manual one-liner, by design). Chroma, Qdrant, Milvus, and
    LanceDB -- all in real production use -- aren't supported at all.
+   Checking the two that *are* supported precisely (not trusting the
+   "verified via introspection" comment as still true) found two more real
+   bugs, both fixed: pinecone's pinned `9.1.0` added `Index.search_records`
+   (an alias for `search`) and `Index.fetch_by_metadata` since
+   `PINECONE_QUERY_METHODS` was last checked -- silently under-counted,
+   same failure class as everything else in this list. And weaviate-client
+   ships a fully separate async client (`WeaviateAsyncClient`/
+   `_QueryCollectionAsync`) with identical method names to the sync
+   `_QueryCollection` this module already patched -- a customer using
+   Weaviate's own recommended async client got zero instrumentation, and a
+   naive fix would have hit the exact sync-wrapper-around-async-method bug
+   already fixed twice this session (LangGraph, CrewAI) -- caught before
+   shipping it a third time.
 5. **Contextvar-based attribution is process-local.** `current_run_id`/
    `current_step`/`current_node` are `contextvars.ContextVar`s, which don't
    cross process boundaries and need explicit propagation across

@@ -1,3 +1,4 @@
+import asyncio
 import time
 from datetime import timezone
 
@@ -23,9 +24,11 @@ def _reset_patch_state():
     # a fresh (not idempotent-skipped) patch each time to actually wrap it.
     vector_query_adapter._patched_pinecone_sink = None
     vector_query_adapter._patched_weaviate_sink = None
+    vector_query_adapter._patched_weaviate_async_sink = None
     yield
     vector_query_adapter._patched_pinecone_sink = None
     vector_query_adapter._patched_weaviate_sink = None
+    vector_query_adapter._patched_weaviate_async_sink = None
 
 
 def test_observe_vector_query_records_success():
@@ -81,6 +84,23 @@ def test_register_pinecone_callbacks_patches_every_query_method():
     finally:
         for name, original in originals.items():
             setattr(Index, name, original)
+
+
+def test_pinecone_query_methods_covers_search_records_and_fetch_by_metadata():
+    # Regression test: pinecone>=9.1.0 added Index.search_records (an alias
+    # for search -- confirmed via Index.search_records.__doc__) and
+    # Index.fetch_by_metadata (a metadata-filtered fetch, same shape as the
+    # already-covered `fetch`) since this list was last verified against the
+    # real installed package. Both are retrieval/fetch-shaped and were
+    # missing -- silently under-counting real retrieval activity, exactly
+    # the failure mode this module's own docstring warns against. See
+    # docs/Production_Readiness_and_Pipeline_Compatibility_Assessment.md.
+    from pinecone import Index
+
+    assert hasattr(Index, "search_records"), "pinecone's Index API changed -- re-verify PINECONE_QUERY_METHODS"
+    assert hasattr(Index, "fetch_by_metadata"), "pinecone's Index API changed -- re-verify PINECONE_QUERY_METHODS"
+    assert "search_records" in PINECONE_QUERY_METHODS
+    assert "fetch_by_metadata" in PINECONE_QUERY_METHODS
 
 
 def test_registered_pinecone_query_sinks_a_call_event_and_returns_the_real_result():
@@ -189,3 +209,52 @@ def test_registered_weaviate_near_vector_sinks_a_call_event():
         assert event.error is False
     finally:
         _QueryCollection.near_vector = original
+
+
+def test_register_weaviate_callbacks_also_patches_the_async_query_collection():
+    # Regression test: weaviate-client ships a fully separate async client
+    # (weaviate.WeaviateAsyncClient / _QueryCollectionAsync) with the exact
+    # same method names as the sync _QueryCollection this module already
+    # patches -- a customer using Weaviate's own recommended async client
+    # (use_async_with_weaviate_cloud etc.) got zero vector-store
+    # instrumentation. See docs/Production_Readiness_and_Pipeline_Compatibility_Assessment.md.
+    from weaviate.collections.collection.async_ import _QueryCollectionAsync
+
+    originals = {name: getattr(_QueryCollectionAsync, name) for name in WEAVIATE_QUERY_METHODS}
+    try:
+        register_weaviate_callbacks(sink=lambda event: None)
+        for name in WEAVIATE_QUERY_METHODS:
+            assert getattr(_QueryCollectionAsync, name) is not originals[name]
+    finally:
+        for name, original in originals.items():
+            setattr(_QueryCollectionAsync, name, original)
+
+
+def test_registered_weaviate_async_near_vector_sinks_a_call_event():
+    from weaviate.collections.collection.async_ import _QueryCollectionAsync
+
+    original = _QueryCollectionAsync.near_vector
+
+    async def _fake_near_vector(self, *args, **kwargs):
+        return "stand-in result"
+
+    _QueryCollectionAsync.near_vector = _fake_near_vector
+    captured = []
+    try:
+        register_weaviate_callbacks(sink=captured.append)
+
+        query = _QueryCollectionAsync.__new__(_QueryCollectionAsync)
+        query.name = "my-collection"
+        with track_run("run-3"), track_step(9), track_node("retriever_tool"):
+            result = asyncio.run(query.near_vector([0.1, 0.2]))
+
+        assert result == "stand-in result"
+        assert len(captured) == 1
+        event = captured[0]
+        assert event.run_id == "run-3"
+        assert event.step == 9
+        assert event.caller == "retriever_tool"
+        assert event.callee == "my-collection"
+        assert event.error is False
+    finally:
+        _QueryCollectionAsync.near_vector = original
