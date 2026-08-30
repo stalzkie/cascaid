@@ -4,12 +4,12 @@ alert history, plus a flat key/value config store. Callers hand in a live Sessio
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
-from cascaid.storage.models import AlertHistory, Base, Config, IncidentLabel, ScoreHistory
+from cascaid.storage.models import AlertHistory, AuthSession, Base, Config, IncidentLabel, ScoreHistory
 
 
 def init_db(engine: Engine) -> None:
@@ -83,3 +83,27 @@ def set_config(session: Session, key: str, value: str) -> None:
     else:
         row.value = value
     session.commit()
+
+
+def create_session(session: Session, token: str, expires_at: datetime) -> AuthSession:
+    auth_session = AuthSession(token=token, expires_at=expires_at)
+    session.add(auth_session)
+    session.commit()
+    return auth_session
+
+
+def get_session(session: Session, token: str) -> AuthSession | None:
+    row = session.get(AuthSession, token)
+    if row is None:
+        return None
+    expires_at = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < datetime.now(timezone.utc):
+        return None
+    return row
+
+
+def delete_session(session: Session, token: str) -> None:
+    row = session.get(AuthSession, token)
+    if row is not None:
+        session.delete(row)
+        session.commit()

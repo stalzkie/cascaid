@@ -1,8 +1,14 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./App";
+import { getToken, setToken } from "./lib/auth";
 
 const originalFetch = globalThis.fetch;
+
+beforeEach(() => {
+  sessionStorage.clear();
+  setToken("tok-123");
+});
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
@@ -78,5 +84,43 @@ describe("App", () => {
     fireEvent.click(screen.getByRole("button", { name: "run-b" }));
 
     await waitFor(() => expect(screen.getByRole("img", { name: /pipeline risk graph/i })).toBeInTheDocument());
+  });
+
+  it("shows the login screen when no token is stored", () => {
+    sessionStorage.clear();
+
+    render(<App />);
+
+    expect(screen.getByRole("heading", { name: /sign in/i })).toBeInTheDocument();
+  });
+
+  it("shows the dashboard after a successful login", async () => {
+    sessionStorage.clear();
+    const loginThenList = vi.fn((url: string) => {
+      if (url.includes("/auth/login")) {
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({ token: "tok-123" }) });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ run_ids: [] }) });
+    });
+    globalThis.fetch = loginThenList as unknown as typeof fetch;
+
+    render(<App />);
+    fireEvent.change(screen.getByLabelText(/username/i), { target: { value: "admin" } });
+    fireEvent.change(screen.getByLabelText(/password/i), { target: { value: "hunter2" } });
+    fireEvent.click(screen.getByRole("button", { name: /log in/i }));
+
+    await waitFor(() => expect(screen.getByText(/risk dashboard/i)).toBeInTheDocument());
+    expect(getToken()).toBe("tok-123");
+  });
+
+  it("logs out, clears the token, and returns to the login screen", async () => {
+    mockFetch({ runIds: [] });
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/risk dashboard/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: /log out/i }));
+
+    await waitFor(() => expect(screen.getByRole("heading", { name: /sign in/i })).toBeInTheDocument());
+    expect(getToken()).toBeNull();
   });
 });

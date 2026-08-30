@@ -3,6 +3,7 @@ CLI entry points -- a trained model and a persisted snapshot are read back throu
 the actual FastAPI app the `cascaid.serve` CLI builds from argv."""
 
 import sys
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pytest
@@ -14,7 +15,7 @@ import cascaid_demo.run_scenarios as run_scenarios_cli
 from cascaid.ingestion.graph_store import save_snapshot
 from cascaid.ingestion.snapshot_builder import build_snapshots, to_pyg_data
 from cascaid.storage.db import make_session_factory
-from cascaid.storage.repository import get_score_history
+from cascaid.storage.repository import create_session, get_score_history
 from cascaid_demo.fault_injection import make_scenario
 from cascaid_demo.mock_llm_gateway import ModelGateway
 from cascaid_demo.mock_vector_db import VectorStore
@@ -76,8 +77,10 @@ def test_serve_cli_serves_risk_for_a_persisted_snapshot(tmp_path, monkeypatch):
     )
     app = serve_cli.build_app_from_argv()
     client = TestClient(app)
+    with make_session_factory(database_url)() as session:
+        create_session(session, token="test-token", expires_at=datetime.now(timezone.utc) + timedelta(hours=1))
 
-    response = client.get("/risk/serve-e2e-run")
+    response = client.get("/risk/serve-e2e-run", headers={"Authorization": "Bearer test-token"})
 
     assert response.status_code == 200
     body = response.json()

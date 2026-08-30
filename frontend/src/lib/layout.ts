@@ -6,6 +6,7 @@ export interface Position {
 interface LayoutOptions {
   xSpacing?: number;
   ySpacing?: number;
+  nodeHeight?: (name: string) => number;
 }
 
 // Deterministic layered (Sugiyama-style) layout via Kahn's algorithm: nodes with
@@ -16,7 +17,7 @@ interface LayoutOptions {
 export function computeLayout(
   nodeNames: string[],
   edges: [string, string][],
-  { xSpacing = 160, ySpacing = 90 }: LayoutOptions = {},
+  { xSpacing = 160, ySpacing = 90, nodeHeight = () => 0 }: LayoutOptions = {},
 ): Record<string, Position> {
   const outgoing = new Map<string, string[]>();
   const inDegree = new Map<string, number>();
@@ -54,11 +55,19 @@ export function computeLayout(
     frontier = next;
   }
 
+  // Each layer stacks its own nodes top-to-bottom by their actual height
+  // (uniform ySpacing is just the gap between them) rather than dropping
+  // every node into an equal-size slot, so a tall composite card doesn't
+  // overlap its neighbors and short cards don't leave dead space around them.
   const positions: Record<string, Position> = {};
   layers.forEach((layer, layerIndex) => {
-    const offset = ((layer.length - 1) * ySpacing) / 2;
+    const heights = layer.map(nodeHeight);
+    const totalHeight = heights.reduce((sum, h) => sum + h, 0) + ySpacing * Math.max(0, layer.length - 1);
+    let cursor = -totalHeight / 2;
     layer.forEach((name, i) => {
-      positions[name] = { x: layerIndex * xSpacing, y: i * ySpacing - offset };
+      const h = heights[i];
+      positions[name] = { x: layerIndex * xSpacing, y: cursor + h / 2 };
+      cursor += h + ySpacing;
     });
   });
   return positions;

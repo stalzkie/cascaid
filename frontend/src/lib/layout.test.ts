@@ -52,4 +52,23 @@ describe("computeLayout", () => {
     const pos = computeLayout(["a", "b", "c"], [["a", "b"]]);
     expect(Object.keys(pos).sort()).toEqual(["a", "b", "c"]);
   });
+
+  it("stacks a layer by each node's own height, not a uniform slot", () => {
+    // b is much taller than c -- the gap between their centers should grow
+    // to match, instead of the fixed ySpacing a uniform-height layout would use.
+    const pos = computeLayout(
+      ["a", "b", "c"],
+      [
+        ["a", "b"],
+        ["a", "c"],
+      ],
+      { ySpacing: 10, nodeHeight: (name) => (name === "b" ? 200 : 20) },
+    );
+    expect(pos.c.y - pos.b.y).toBeCloseTo((200 + 20) / 2 + 10);
+  });
+
+  it("keeps a single-node layer centered on the origin regardless of its height", () => {
+    const pos = computeLayout(["a"], [], { nodeHeight: () => 500 });
+    expect(pos.a).toEqual({ x: 0, y: 0 });
+  });
 });
