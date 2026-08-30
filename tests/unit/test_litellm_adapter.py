@@ -158,6 +158,44 @@ def test_registered_callback_sinks_a_call_event_when_run_context_is_set():
     assert event.error is False
 
 
+def test_registered_callback_sinks_exactly_one_event_for_a_streaming_sync_call():
+    # Regression test: a streaming sync completion() call is dispatched by
+    # litellm via a background ThreadPoolExecutor (verified empirically --
+    # see docs/Production_Readiness_and_Pipeline_Compatibility_Assessment.md),
+    # which does not propagate contextvars, AND fires one success callback per
+    # chunk plus a final aggregated one. Without both fixes (metadata-based
+    # attribution + skipping non-final chunks), streaming either drops every
+    # event or produces a run of near-duplicate, degenerate-latency ones.
+    captured = []
+    litellm.success_callback = []
+    litellm.failure_callback = []
+    litellm.callbacks = []
+    try:
+        register_litellm_callbacks(sink=captured.append)
+
+        with track_run("run-1"), track_step(2), track_node("research_agent"):
+            response = litellm.completion(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": "hi"}],
+                mock_response="hello there streaming",
+                stream=True,
+            )
+            for _ in response:
+                pass
+        _wait_for(lambda: len(captured) == 1, timeout=5.0, interval=0.05)
+    finally:
+        litellm.success_callback = []
+        litellm.failure_callback = []
+        litellm.callbacks = []
+
+    event = captured[0]
+    assert event.run_id == "run-1"
+    assert event.step == 2
+    assert event.caller == "research_agent"
+    assert event.callee == "gpt-4o-mini"
+    assert event.error is False
+
+
 def test_registered_callback_skips_the_sink_when_run_context_is_not_set():
     captured = []
     litellm.success_callback = []

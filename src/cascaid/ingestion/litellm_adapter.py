@@ -5,25 +5,31 @@ call sites.
 Two dispatch mechanisms are used deliberately, not one:
 
 - Sync `litellm.completion()` calls: the legacy `litellm.success_callback`/
-  `failure_callback` lists, reading caller/run/step from runtime_context's
-  contextvars at logging time -- proven fast and reliable (fires
-  synchronously, in-request).
+  `failure_callback` lists.
 - Async `litellm.acompletion()` calls: `litellm.callbacks` (a CustomLogger),
   because the legacy lists don't fire for acompletion() at all -- verified
   empirically (see docs/Production_Readiness_and_Pipeline_Compatibility_Assessment.md).
   litellm also defers this async dispatch to run detached from the coroutine
-  that made the call, often well after it returns, by which point
-  current_run_id/current_step/current_node have already been reset. So
-  register_litellm_callbacks additionally patches litellm.completion/
-  acompletion to snapshot the contextvars into the call's own `metadata`
-  kwarg *at call time* (while they're still valid), and the async path reads
-  that snapshot back out of the logging kwargs instead of the (by-then-stale)
-  contextvars.
+  that made the call, often well after it returns.
 
-A single unified CustomLogger-only design was tried first and reverted: it
-measurably slowed down litellm's own callback dispatch under real load
-(observed making unrelated tests' short timeouts flaky), for no benefit over
-the sync path the legacy lists already handled correctly.
+A single unified CustomLogger-only design for both was tried first and
+reverted: it measurably slowed down litellm's own callback dispatch under
+real load (observed making unrelated tests' short timeouts flaky), for no
+benefit over the sync path the legacy lists already handled correctly.
+
+Both mechanisms read run_id/step/caller from a `metadata` snapshot taken
+*before* dispatch (see _snapshot_context_into_metadata), not ambient
+contextvars at logging time -- current_run_id/current_step/current_node can
+be stale or altogether unset by the time a callback actually fires. This
+isn't only true for the async path: a *streaming* sync completion() call
+(stream=True) is also dispatched via a background ThreadPoolExecutor
+(verified empirically), so ambient contextvar reads would silently drop
+every streaming CallEvent even on the "synchronous" path. litellm also fires
+one success callback per streaming chunk plus a final aggregated one -- only
+the final call (kwargs["complete_streaming_response"] is set) is sinked, so
+streaming still produces exactly one CallEvent per logical LLM call.
+register_litellm_callbacks patches litellm.completion/acompletion themselves
+to take that metadata snapshot automatically.
 """
 
 from __future__ import annotations
@@ -195,23 +201,59 @@ def register_litellm_callbacks(sink: Callable[[CallEvent], None]) -> None:
     clobbering it. See the module docstring for why sync and async dispatch
     use two different mechanisms.
 
-    Requires current_run_id/current_step to already be set (by the LangGraph
-    invocation-boundary adapter) -- if instrumentation hasn't reached this call for
-    some reason, the hook no-ops rather than raising into the customer's live call
-    path or fabricating a run_id/step that would misrepresent the pipeline."""
+    Requires the metadata snapshot below to have been captured -- if
+    instrumentation hasn't reached this call for some reason, the hook no-ops
+    rather than raising into the customer's live call path or fabricating a
+    run_id/step that would misrepresent the pipeline.
+
+    Reads run_id/step/caller from the metadata snapshot (see
+    _snapshot_context_into_metadata), not ambient contextvars, even on this
+    "fast, synchronous" sync path: a *streaming* sync completion() call
+    (stream=True) is dispatched by litellm via a background
+    ThreadPoolExecutor -- verified empirically, same contextvar-loss failure
+    mode as the async/thread cases documented in the module docstring -- so
+    ambient contextvar reads would silently drop every streaming CallEvent.
+    litellm also fires one success callback per streaming chunk plus a final
+    aggregated one; only the final call (kwargs["complete_streaming_response"]
+    is set) is sinked, so one logical LLM call still produces exactly one
+    CallEvent instead of a run of near-duplicate, degenerate-latency ones."""
     import litellm
 
     def _on_success(kwargs, completion_response, start_time, end_time):
-        run_id, step = current_run_id.get(), current_step.get()
+        if kwargs.get("stream") and kwargs.get("complete_streaming_response") is None:
+            return  # mid-stream chunk, not litellm's final aggregated callback
+        metadata = _cascaid_metadata(kwargs)
+        run_id, step = metadata.get(_METADATA_RUN_ID), metadata.get(_METADATA_STEP)
         if run_id is None or step is None:
             return
-        sink(litellm_success_to_call_event(kwargs, completion_response, start_time, end_time, run_id=run_id, step=step))
+        sink(
+            litellm_success_to_call_event(
+                kwargs,
+                completion_response,
+                start_time,
+                end_time,
+                run_id=run_id,
+                step=step,
+                caller=metadata.get(_METADATA_NODE),
+            )
+        )
 
     def _on_failure(kwargs, completion_response, start_time, end_time):
-        run_id, step = current_run_id.get(), current_step.get()
+        metadata = _cascaid_metadata(kwargs)
+        run_id, step = metadata.get(_METADATA_RUN_ID), metadata.get(_METADATA_STEP)
         if run_id is None or step is None:
             return
-        sink(litellm_failure_to_call_event(kwargs, completion_response, start_time, end_time, run_id=run_id, step=step))
+        sink(
+            litellm_failure_to_call_event(
+                kwargs,
+                completion_response,
+                start_time,
+                end_time,
+                run_id=run_id,
+                step=step,
+                caller=metadata.get(_METADATA_NODE),
+            )
+        )
 
     litellm.success_callback.append(_on_success)
     litellm.failure_callback.append(_on_failure)
