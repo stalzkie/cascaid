@@ -32,7 +32,7 @@ def check_drift(
 
 
 def _maybe_alert(run_id: str, drifted: dict[str, float], database_url: str) -> None:
-    from cascaid.alerting.dispatch import enabled_webhook_url, send_webhook
+    from cascaid.alerting.dispatch import alert_channel_config, enabled_webhook_url, send_webhook
     from cascaid.alerting.rules import Alert
     from cascaid.storage.db import get_engine, make_session_factory
     from cascaid.storage.repository import init_db, record_alert
@@ -42,6 +42,7 @@ def _maybe_alert(run_id: str, drifted: dict[str, float], database_url: str) -> N
         webhook_url = enabled_webhook_url(session)
         if not webhook_url:
             return
+        channel, routing_key = alert_channel_config(session)
         for name, score in drifted.items():
             # node_type is normally one of agent/tool/model_endpoint/vector_store
             # (rules._LABEL_BY_NODE_TYPE's vocabulary) -- "drift" is deliberately
@@ -57,9 +58,9 @@ def _maybe_alert(run_id: str, drifted: dict[str, float], database_url: str) -> N
                     f"(PSI={score:.3f}) -- consider retraining or investigating recent pipeline changes."
                 ),
             )
-            send_webhook(webhook_url, alert)
+            send_webhook(webhook_url, alert, channel=channel, pagerduty_routing_key=routing_key)
             record_alert(
-                session, run_id=run_id, node_name=name, risk_score=score, message=alert.message, channel="webhook"
+                session, run_id=run_id, node_name=name, risk_score=score, message=alert.message, channel=channel
             )
 
 

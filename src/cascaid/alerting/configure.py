@@ -4,6 +4,10 @@ user explicitly enables it):
     python -m cascaid.alerting.configure --database-url ... --enable \
         --threshold 0.8 --webhook-url https://hooks.example.com/cascaid
     python -m cascaid.alerting.configure --database-url ... --disable
+
+Slack: --webhook-url is the Slack incoming-webhook URL, --channel slack.
+PagerDuty: --webhook-url is https://events.pagerduty.com/v2/enqueue,
+--channel pagerduty, and --pagerduty-routing-key is the service's integration key.
 """
 
 from __future__ import annotations
@@ -22,6 +26,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     group.add_argument("--disable", action="store_true")
     parser.add_argument("--threshold", type=float, default=None)
     parser.add_argument("--webhook-url", type=str, default=None)
+    parser.add_argument("--channel", type=str, choices=["webhook", "slack", "pagerduty"], default=None)
+    parser.add_argument("--pagerduty-routing-key", type=str, default=None)
     return parser.parse_args(argv)
 
 
@@ -37,6 +43,10 @@ def main():
             set_config(session, "alert_threshold", str(args.threshold))
         if args.webhook_url is not None:
             set_config(session, "alert_webhook_url", args.webhook_url)
+        if args.channel is not None:
+            set_config(session, "alert_channel", args.channel)
+        if args.pagerduty_routing_key is not None:
+            set_config(session, "alert_pagerduty_routing_key", args.pagerduty_routing_key)
 
 
 if __name__ == "__main__":

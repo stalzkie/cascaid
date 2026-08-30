@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy.orm import Session, sessionmaker
 
-from cascaid.alerting.dispatch import enabled_webhook_url, send_webhook
+from cascaid.alerting.dispatch import alert_channel_config, enabled_webhook_url, send_webhook
 from cascaid.alerting.rules import evaluate_risk
 from cascaid.auth.dependency import make_require_auth
 from cascaid.ingestion.graph_store import latest_snapshot
@@ -21,16 +21,17 @@ def _maybe_alert(session: Session, run_id: str, scores: dict[str, float], node_t
     webhook_url = enabled_webhook_url(session)
     if not webhook_url:
         return
+    channel, routing_key = alert_channel_config(session)
     threshold = float(get_config(session, "alert_threshold", default="0.8"))
     for alert in evaluate_risk(run_id, scores, node_types, threshold):
-        send_webhook(webhook_url, alert)
+        send_webhook(webhook_url, alert, channel=channel, pagerduty_routing_key=routing_key)
         record_alert(
             session,
             run_id=alert.run_id,
             node_name=alert.node_name,
             risk_score=alert.risk_score,
             message=alert.message,
-            channel="webhook",
+            channel=channel,
         )
 
 
