@@ -1,0 +1,55 @@
+name: Bug report
+description: Something in Cascaid is broken or behaving unexpectedly.
+labels: ["bug"]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you expect instead?
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: Exact commands, or a minimal pipeline, that trigger it.
+      placeholder: |
+        cascaid demo
+        cascaid ingest --events ... --model ...
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs / stack trace
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: Cascaid version
+      description: Output of `cascaid --version`, or the commit SHA if running from source.
+    validations:
+      required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      multiple: true
+      options:
+        - CLI (demo/run/ingest/serve)
+        - Instrumentation (auto-detect for LangGraph/LiteLLM/Pinecone/Weaviate)
+        - Serving API / risk scoring
+        - Dashboard (frontend)
+        - MCP server
+        - Auth
+        - Training / models
+        - Docker Compose / deployment
+        - Other / not sure
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: OS, Python version, how you installed Cascaid (pipx / uv tool / from source), Postgres or SQLite.
+    validations:
+      required: true

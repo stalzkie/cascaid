@@ -1,10 +1,20 @@
 # Cascaid
 
+[![CI](https://github.com/stalzkie/cascaid/actions/workflows/ci.yml/badge.svg)](https://github.com/stalzkie/cascaid/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/cascaid)](https://pypi.org/project/cascaid/)
+[![Python](https://img.shields.io/pypi/pyversions/cascaid)](https://pypi.org/project/cascaid/)
+[![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
+
 Predictive cascading-failure intelligence for AI-native systems: predicts which
 part of your LangGraph/LiteLLM/vector-DB pipeline is about to take the rest
 down with it, before it happens -- not just tracing what already went wrong.
 Self-hosted, your data never leaves your own environment. See
 `docs/Cascaid_PRD (1).md` for the full product spec.
+
+Contributions are welcome -- see [CONTRIBUTING.md](CONTRIBUTING.md) to get set
+up. This project follows a [Code of Conduct](CODE_OF_CONDUCT.md); report
+security issues per [SECURITY.md](SECURITY.md) rather than filing a public
+issue.
 
 ## Install
 
@@ -52,6 +62,17 @@ uv run python -m cascaid.train                # train GNN vs XGBoost baseline, s
 Or, once `uv sync` has installed the project in editable mode, use the unified
 CLI directly: `uv run cascaid demo`, `uv run cascaid serve ...`, etc.
 
+Dashboard frontend (React + TypeScript, Node 20):
+
+```
+cd frontend
+npm install
+npm run dev                          # dev server with hot reload
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor workflow,
+lint/test commands, and branching conventions.
+
 ## Test pyramid
 
 ```
@@ -72,6 +93,21 @@ Branch protection (require PR + passing checks into `staging`/`master`) is one-t
 ```
 bash scripts/setup-branch-protection.sh
 ```
+
+## Documentation
+
+`docs/` is an Obsidian vault covering the product spec (`Cascaid_PRD (1).md`),
+competitive positioning, model-accuracy logs, and UI design research -- see
+`docs/README.md` for the index.
+
+## Contributing
+
+Bug reports, feature requests, and PRs are welcome -- see
+[CONTRIBUTING.md](CONTRIBUTING.md) for local setup, the test pyramid, and the
+PR workflow. Please also read the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+Found a security issue? Please follow [SECURITY.md](SECURITY.md) instead of
+filing a public issue.
 
 ## License
 
