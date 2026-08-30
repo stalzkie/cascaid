@@ -7,7 +7,7 @@ from crewai.tools import tool
 
 import cascaid.ingestion.crewai_adapter as crewai_adapter
 from cascaid.ingestion.crewai_adapter import extract_static_topology, instrument_crewai
-from cascaid.ingestion.runtime_context import current_node, current_step
+from cascaid.ingestion.runtime_context import current_node, current_run_id, current_step, track_run
 from cascaid.ingestion.schema import NodeType
 
 
@@ -145,6 +145,50 @@ def test_instrument_crewai_wraps_kickoff_in_track_step_and_tasks_in_track_node()
     assert captured["step"] == 0
     assert captured["node_before_task"] is None
     assert captured["node"] == "capturer (0)"
+
+
+def test_instrument_crewai_attributes_async_execution_tasks_correctly():
+    # Regression test: CrewAI's real Task.execute_async (used whenever a task
+    # has async_execution=True, a real documented CrewAI feature -- see
+    # crew.py's `if task.async_execution:` branch) spawns a raw
+    # threading.Thread, not asyncio.to_thread -- contextvars set during
+    # patched_kickoff on the main thread (track_run, track_step) do NOT
+    # propagate into that thread. Verified against real CrewAI before writing
+    # this fix (see docs/Production_Readiness_and_Pipeline_Compatibility_Assessment.md):
+    # without it, the async task's run_id/step read as None (dropping every
+    # LiteLLM/vector-DB CallEvent it makes) and its node name silently falls
+    # back to _task_node_name(task, 0) -- wrong for any async task not at
+    # index 0, not just missing.
+    captured = {}
+    agent0, agent1 = _agent("agent0"), _agent("agent1")
+    task0, task1 = _task("task0", agent0), _task("task1", agent1)
+
+    def _fake_orchestration(self, *args, **kwargs):
+        # task1 (index 1) executes on a separate raw thread, exactly how
+        # CrewAI's real Task.execute_async does for async_execution=True.
+        thread = threading.Thread(target=lambda: task1._execute_core(agent1, "", []))
+        thread.start()
+        thread.join()
+        return "ok"
+
+    def _fake_execute_core(self, agent, context, tools):
+        captured["run_id"] = current_run_id.get()
+        captured["step"] = current_step.get()
+        captured["node"] = current_node.get()
+        return "ok"
+
+    Crew.kickoff = _fake_orchestration
+    Task._execute_core = _fake_execute_core
+
+    instrument_crewai(topology_sink=lambda nodes, edges: None)
+
+    crew = _build_crew([task0, task1])
+    with track_run("run-1"):
+        crew.kickoff()
+
+    assert captured["run_id"] == "run-1"
+    assert captured["step"] == 0
+    assert captured["node"] == "agent1 (1)"
 
 
 def test_instrument_crewai_keeps_task_names_isolated_across_concurrent_kickoffs():

@@ -100,11 +100,25 @@ Ranked by how many real pipelines each one likely affects:
    single largest "will this work on my pipeline" gap, larger than the
    orchestrator-framework question below, because it affects LangGraph and
    CrewAI pipelines alike regardless of which orchestrator is used.
-2. **CrewAI's `kickoff_async` isn't patched** (`crewai_adapter.py`'s own
-   docstring names this as a known simplification) -- unlike the LangGraph
-   bug above, this at least fails safe: the original unpatched method runs
-   untouched, so there's no false confidence, just no instrumentation for
-   async CrewAI users.
+2. **~~CrewAI's `kickoff_async` isn't patched~~ -- checked precisely, and the
+   real gap was worse and different.** `Crew.kickoff_async` itself turned
+   out fine unpatched: it's `return await asyncio.to_thread(self.kickoff, ...)`,
+   and `asyncio.to_thread` *does* copy contextvars into the new thread, so it
+   correctly reaches the already-patched `Crew.kickoff`. The real bug is one
+   level down: any `Task(async_execution=True)` -- a real, commonly-used
+   CrewAI feature for parallelizing independent tasks *within* a normal
+   `Crew.kickoff()` run (`crew.py`'s `if task.async_execution:` branch) --
+   runs via `Task.execute_async`, which spawns a raw `threading.Thread` (not
+   `asyncio.to_thread`). A raw thread does not inherit contextvars, so the
+   async task's `run_id`/`step` read as `None` inside it (dropping every
+   LiteLLM/vector-DB CallEvent it makes), and its node-name attribution
+   silently fell back to the wrong task's name (verified against real
+   CrewAI: a 3-task crew with the middle task async attributed it as
+   `"researcher (0)"` instead of `"researcher (1)"` -- wrong, not just
+   missing). Fixed the same session this was found: stash
+   `run_id`/`step`/`name` as attributes directly on the live `Task` object
+   at kickoff time (plain attribute access needs no thread-context
+   propagation) instead of relying on contextvars alone.
 3. **AutoGen and hand-rolled/custom orchestration remain unsupported**
    (reaffirming the prior assessment's finding). No generic, manual
    instrumentation seam is documented as a fallback -- e.g. a simple

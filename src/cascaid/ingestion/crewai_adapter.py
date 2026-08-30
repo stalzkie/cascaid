@@ -5,15 +5,31 @@ over a *copied* contextvars.Context (see crewai.events.event_bus.emit), so a
 ContextVar set from an event handler never becomes visible in the thread actually
 running the task/LLM call it's meant to tag -- verified against CrewAI's source
 before choosing this seam over the (more idiomatic-looking) event-listener API.
+
+The same class of problem shows up again one level down: a Task with
+`async_execution=True` (crew.py's `if task.async_execution:` branch) runs via
+`Task.execute_async`, which spawns a raw `threading.Thread` -- not
+`asyncio.to_thread`, which *does* copy contextvars. A raw thread does not
+inherit the calling context, so track_step/track_run set during
+patched_kickoff (on the main thread) are invisible inside patched_execute_core
+when CrewAI runs it on that new thread (verified empirically -- see
+docs/Production_Readiness_and_Pipeline_Compatibility_Assessment.md): the async
+task's step/run_id read as None (dropping every LiteLLM/vector-DB CallEvent it
+makes) and its node name silently falls back to _task_node_name(task, 0) --
+wrong for any async task not at index 0, not just missing. Fixed by stashing
+each task's run_id/step/name directly as attributes on the live Task object at
+kickoff time (ordinary attribute access needs no thread-context propagation,
+unlike a ContextVar) and having patched_execute_core re-enter
+track_run/track_step/track_node itself from whatever thread it actually runs
+on, instead of assuming the kickoff-level context is still in scope.
 """
 
 from __future__ import annotations
 
 import itertools
 from collections.abc import Callable
-from contextvars import ContextVar
 
-from cascaid.ingestion.runtime_context import track_node, track_step
+from cascaid.ingestion.runtime_context import current_run_id, track_node, track_run, track_step
 from cascaid.ingestion.schema import NodeType
 
 TopologySink = Callable[[dict[str, NodeType], list[tuple[str, str]]], None]
@@ -69,21 +85,16 @@ def extract_static_topology(crew) -> tuple[dict[str, NodeType], list[tuple[str, 
 _topology_sink: TopologySink | None = None
 _patched = False
 
-# Per-kickoff, not a shared module-level dict: two Crew.kickoff() calls running
-# concurrently on different threads each need their own view of "which task name
-# goes with which Task object" without clobbering each other's, the same isolation
-# problem track_node/track_step already solve for -- so this reuses that mechanism
-# rather than inventing a second one.
-_task_names: ContextVar[dict[int, str] | None] = ContextVar("_crewai_task_names", default=None)
-
 
 def instrument_crewai(topology_sink: TopologySink) -> None:
     """Monkey-patches CrewAI (PRD 4.5) so a customer's pipeline needs zero code
-    changes: Crew.kickoff extracts topology once per call and wraps the call in a
-    fresh track_step (one step = one top-level kickoff, matching what the GNN was
-    trained on), and Task._execute_core -- the shared core execute_sync/execute_async
-    both call -- wraps each task's execution in track_node using the same node name
-    extract_static_topology assigned it. The class patch applies once per process;
+    changes: Crew.kickoff extracts topology once per call and stashes each
+    task's step/node-name directly onto the live Task object (see module
+    docstring for why: a ContextVar wouldn't survive Task.execute_async's raw
+    thread), and Task._execute_core -- the shared core execute_sync/
+    execute_async both call, on whichever thread CrewAI actually runs it on --
+    reads that stashed step/name back off `self` and re-enters
+    track_step/track_node itself. The class patch applies once per process;
     topology_sink can be updated on repeat calls without re-patching.
 
     Known simplification: only Crew.kickoff is wrapped, not kickoff_for_each; only
@@ -104,22 +115,25 @@ def instrument_crewai(topology_sink: TopologySink) -> None:
         if _topology_sink is not None:
             nodes, edges = extract_static_topology(self)
             _topology_sink(nodes, edges)
-        # Keyed by id(task): Task has no natural hashable business key, and this is
-        # safe because self.tasks holds live references for the whole call below --
-        # nothing here can be garbage-collected (and have its id() reused) while
-        # in scope.
-        names = {id(task): name for task, name in zip(self.tasks, _task_node_names(self.tasks), strict=True)}
-        token = _task_names.set(names)
-        try:
-            with track_step(next(step_counter)):
-                return original_kickoff(self, *args, **kwargs)
-        finally:
-            _task_names.reset(token)
+        step = next(step_counter)
+        # Captured here (main thread, where it's already correctly set by
+        # whatever wrapped this kickoff -- e.g. the bootstrap's track_run),
+        # not read fresh in patched_execute_core: current_run_id is exactly as
+        # vulnerable to Task.execute_async's raw-thread context loss as
+        # current_step is (verified empirically, same as the docstring above).
+        run_id = current_run_id.get()
+        for task, name in zip(self.tasks, _task_node_names(self.tasks), strict=True):
+            task._cascaid_step = step
+            task._cascaid_name = name
+            task._cascaid_run_id = run_id
+        with track_step(step):
+            return original_kickoff(self, *args, **kwargs)
 
     def patched_execute_core(self, agent, context, tools):
-        names = _task_names.get()
-        name = (names.get(id(self)) if names else None) or _task_node_name(self, 0)
-        with track_node(name):
+        name = getattr(self, "_cascaid_name", None) or _task_node_name(self, 0)
+        step = getattr(self, "_cascaid_step", None)
+        run_id = getattr(self, "_cascaid_run_id", None)
+        with track_run(run_id), track_step(step), track_node(name):
             return original_execute_core(self, agent, context, tools)
 
     Crew.kickoff = patched_kickoff
