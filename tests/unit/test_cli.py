@@ -121,6 +121,27 @@ def test_main_dispatches_mcp_with_passthrough_args_as_argv(monkeypatch):
     assert captured["argv"] == ["mcp", "--database-url", "sqlite:///x.db", "--store", "data/graph_store"]
 
 
+def test_main_dispatches_drift_with_passthrough_args_as_argv(monkeypatch):
+    captured: dict[str, list[str]] = {}
+
+    def fake_main():
+        import sys as sys_
+
+        captured["argv"] = list(sys_.argv)
+
+    monkeypatch.setattr(cli.drift_cli, "main", fake_main)
+
+    cli.main(["drift", "--reference", "models/pretrained_base.drift_reference.json", "--run-id", "run-1"])
+
+    assert captured["argv"] == [
+        "drift",
+        "--reference",
+        "models/pretrained_base.drift_reference.json",
+        "--run-id",
+        "run-1",
+    ]
+
+
 def test_main_dispatches_run_by_launching_the_target_as_an_instrumented_subprocess(monkeypatch, tmp_path):
     captured = {}
 
