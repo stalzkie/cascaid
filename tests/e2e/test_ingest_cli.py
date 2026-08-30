@@ -76,6 +76,7 @@ def test_ingest_writes_snapshots_and_score_history_from_a_live_events_file(tmp_p
     events_path = tmp_path / "live.jsonl"
     litellm.success_callback = []
     litellm.failure_callback = []
+    litellm.callbacks = []
     run_id = str(uuid.uuid4())
     try:
         instrument_langgraph(topology_sink=_topology_sink(str(events_path)))
@@ -86,8 +87,13 @@ def test_ingest_writes_snapshots_and_score_history_from_a_live_events_file(tmp_p
             compiled.invoke({"query": "q2"})
         _wait_for(lambda: events_path.exists() and len(events_path.read_text(encoding="utf-8").splitlines()) >= 3)
     finally:
+        # Must clear all three registries register_litellm_callbacks populates
+        # -- otherwise this test's _file_sink, bound to a tmp_path that's
+        # deleted once this test ends, stays registered and fires (and fails)
+        # on every later test's real litellm calls for the rest of the process.
         litellm.success_callback = []
         litellm.failure_callback = []
+        litellm.callbacks = []
 
     # 3. cascaid ingest: events file -> Graph Store snapshots + score history.
     store_dir = tmp_path / "graph_store"

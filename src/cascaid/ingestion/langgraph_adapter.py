@@ -7,6 +7,7 @@ they're populated by a separate runtime-observation seam, not this one.
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import itertools
 from collections.abc import Callable
@@ -51,6 +52,22 @@ def _wrap_node_fn(name: str, fn):
 
         return wrapped
 
+    # A plain sync wrapper around an async node function would return the
+    # coroutine unawaited -- LangGraph would see a sync callable (so never
+    # awaits it itself) that hands back a coroutine instead of the node's
+    # actual dict update, and track_node's context would already be reset by
+    # the time the coroutine body ran anyway. Needs its own async wrapper so
+    # the `with` block stays entered for the real execution, not just the
+    # coroutine's construction (same class of bug as _wrap_invoke below).
+    if asyncio.iscoroutinefunction(fn):
+
+        @functools.wraps(fn)
+        async def wrapped(*args, **kwargs):
+            with track_node(name):
+                return await fn(*args, **kwargs)
+
+        return wrapped
+
     @functools.wraps(fn)
     def wrapped(*args, **kwargs):
         with track_node(name):
@@ -63,6 +80,20 @@ def _wrap_invoke(original_invoke, step_counter: itertools.count):
     def wrapped(*args, **kwargs):
         with track_step(next(step_counter)):
             return original_invoke(*args, **kwargs)
+
+    return wrapped
+
+
+def _wrap_ainvoke(original_ainvoke, step_counter: itertools.count):
+    # Must be `async def`, not a sync function returning a coroutine: a sync
+    # wrapper's `with track_step(...)` block would exit the instant the
+    # coroutine is *constructed*, resetting current_step before the graph
+    # actually runs -- silently breaking every LiteLLM/vector-DB CallEvent
+    # for any pipeline invoked via ainvoke (see
+    # docs/Production_Readiness_and_Pipeline_Compatibility_Assessment.md).
+    async def wrapped(*args, **kwargs):
+        with track_step(next(step_counter)):
+            return await original_ainvoke(*args, **kwargs)
 
     return wrapped
 
@@ -112,7 +143,7 @@ def instrument_langgraph(topology_sink: TopologySink) -> None:
 
         step_counter = itertools.count()
         compiled.invoke = _wrap_invoke(compiled.invoke, step_counter)
-        compiled.ainvoke = _wrap_invoke(compiled.ainvoke, step_counter)
+        compiled.ainvoke = _wrap_ainvoke(compiled.ainvoke, step_counter)
         return compiled
 
     StateGraph.add_node = patched_add_node
