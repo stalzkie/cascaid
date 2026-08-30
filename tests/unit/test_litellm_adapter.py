@@ -1,4 +1,5 @@
 import time
+from datetime import timezone
 
 import litellm
 
@@ -59,6 +60,8 @@ def test_converts_real_litellm_success_callback_into_call_event():
     assert event.retried is False
     assert event.latency_ms >= 0
     assert event.token_cost >= 0
+    assert event.occurred_at is not None
+    assert event.occurred_at.tzinfo == timezone.utc
 
 
 def test_converts_real_litellm_failure_callback_into_call_event():
@@ -94,6 +97,8 @@ def test_converts_real_litellm_failure_callback_into_call_event():
     assert event.error is True
     assert event.retried is False
     assert event.latency_ms >= 0
+    assert event.occurred_at is not None
+    assert event.occurred_at.tzinfo == timezone.utc
 
 
 def test_register_litellm_callbacks_appends_without_clobbering_existing_callbacks():

@@ -23,12 +23,13 @@ import cascaid.drift as drift_cli
 import cascaid.ingest as ingest_cli
 import cascaid.langfuse_import as import_langfuse_cli
 import cascaid.mcp.server as mcp_server_cli
+import cascaid.retrain as retrain_cli
 import cascaid.serve as serve_cli
 import cascaid.train as train_cli
 import cascaid_demo.run_scenarios as run_scenarios_cli
 import cascaid_demo.seed_store as seed_store_cli
 
-SUBCOMMANDS = ("serve", "train", "dashboard", "demo", "run", "ingest", "auth", "mcp", "drift", "import")
+SUBCOMMANDS = ("serve", "train", "dashboard", "demo", "run", "ingest", "auth", "mcp", "drift", "import", "retrain")
 
 _SITECUSTOMIZE_SOURCE = "from cascaid._instrument_bootstrap import bootstrap\nbootstrap()\n"
 
@@ -141,6 +142,8 @@ def main(argv: list[str] | None = None) -> None:
         _delegate("mcp", mcp_server_cli.main, rest)
     elif subcommand == "drift":
         _delegate("drift", drift_cli.main, rest)
+    elif subcommand == "retrain":
+        _delegate("retrain", retrain_cli.main, rest)
     elif subcommand == "import":
         if not rest or rest[0] != "langfuse":
             print("usage: cascaid import langfuse ...", file=sys.stderr)

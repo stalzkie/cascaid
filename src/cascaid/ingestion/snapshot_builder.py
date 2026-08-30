@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from collections import defaultdict, deque
 from dataclasses import dataclass
+from datetime import datetime
 
 import numpy as np
 import torch
@@ -53,6 +54,13 @@ class Snapshot:
     node_type_onehot: np.ndarray  # [num_nodes, len(NODE_TYPE_ORDER)]
     edge_index: np.ndarray  # [2, num_edges]
     edge_features: np.ndarray  # [num_edges, NUM_FEATURES]
+    # Wall-clock interval covering this step's events, or None when the source
+    # events carry no occurred_at (synthetic fault-injection data never does --
+    # its manifest already states fault_onset_step/cascade_step directly).
+    # Lets a real IncidentLabel be mapped onto the step active when it occurred
+    # (see docs/Real_Data_Retraining_Plan.md).
+    step_start: datetime | None = None
+    step_end: datetime | None = None
 
 
 def build_snapshots(
@@ -66,10 +74,13 @@ def build_snapshots(
     edges_kind = {(c, cal): _edge_kind(nodes[c], nodes[cal]) for c, cal in edges}
 
     events_by_step_edge: dict[tuple[int, tuple[str, str]], list[CallEvent]] = defaultdict(list)
+    occurred_ats_by_step: dict[int, list[datetime]] = defaultdict(list)
     max_step = -1
     for ev in events:
         events_by_step_edge[(ev.step, (ev.caller, ev.callee))].append(ev)
         max_step = max(max_step, ev.step)
+        if ev.occurred_at is not None:
+            occurred_ats_by_step[ev.step].append(ev.occurred_at)
 
     history: dict[tuple[str, str], deque] = {e: deque(maxlen=window) for e in edges}
     type_onehot = np.zeros((len(node_order), len(NODE_TYPE_ORDER)), dtype=np.float32)
@@ -110,6 +121,7 @@ def build_snapshots(
             else:
                 node_feats[i] = NOMINAL_DEFAULTS["control"]
 
+        step_occurred_ats = occurred_ats_by_step.get(step)
         snapshots.append(
             Snapshot(
                 run_id=events[0].run_id if events else "unknown",
@@ -120,6 +132,8 @@ def build_snapshots(
                 node_type_onehot=type_onehot,
                 edge_index=edge_index_np,
                 edge_features=edge_feats,
+                step_start=min(step_occurred_ats) if step_occurred_ats else None,
+                step_end=max(step_occurred_ats) if step_occurred_ats else None,
             )
         )
     return snapshots
@@ -164,6 +178,8 @@ def to_pyg_data(
     data.run_id = snapshot.run_id
     data.scenario = snapshot.scenario
     data.step = snapshot.step
+    data.step_start = snapshot.step_start
+    data.step_end = snapshot.step_end
     data.node_order = snapshot.node_order
     data.node_types = [NODE_TYPE_ORDER[int(row.argmax())].value for row in snapshot.node_type_onehot]
     data.edges = [(snapshot.node_order[c], snapshot.node_order[cal]) for c, cal in zip(*base_edge_index.tolist())]

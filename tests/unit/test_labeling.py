@@ -1,4 +1,6 @@
-from cascaid.ingestion.labeling import affected_nodes, label_step
+from datetime import datetime, timedelta, timezone
+
+from cascaid.ingestion.labeling import affected_nodes, label_step, label_step_from_incidents
 from cascaid.ingestion.topology import build_static_graph
 from cascaid_demo.pipeline import ALL_EDGES, STATIC_NODES
 
@@ -65,5 +67,65 @@ def test_label_step_after_cascade_is_unusable():
 
 def test_label_step_baseline_never_positive():
     labels, usable = label_step("baseline", 59, NODE_ORDER, GRAPH, fault_onset_step=None, cascade_step=None)
+    assert all(v == 0 for v in labels.values())
+    assert all(usable.values())
+
+
+T0 = datetime(2026, 8, 30, 12, 0, 0, tzinfo=timezone.utc)
+
+
+def test_label_step_from_incidents_marks_node_positive_within_window():
+    incidents = [("primary_model", T0)]
+    labels, usable = label_step_from_incidents(NODE_ORDER, incidents, step_start=T0, step_end=T0)
+
+    assert labels["primary_model"] == 1
+    assert labels["vector_store"] == 0
+    assert all(usable.values())
+
+
+def test_label_step_from_incidents_ignores_incidents_outside_window():
+    incident_far_away = T0 + timedelta(hours=1)
+    labels, _ = label_step_from_incidents(
+        NODE_ORDER, [("primary_model", incident_far_away)], step_start=T0, step_end=T0
+    )
+
+    assert labels["primary_model"] == 0
+
+
+def test_label_step_from_incidents_respects_window_before_and_after():
+    just_inside_before = T0 - timedelta(minutes=5)
+    labels, _ = label_step_from_incidents(
+        NODE_ORDER,
+        [("primary_model", just_inside_before)],
+        step_start=T0,
+        step_end=T0,
+        window_before=timedelta(minutes=5),
+        window_after=timedelta(minutes=5),
+    )
+
+    assert labels["primary_model"] == 1
+
+
+def test_label_step_from_incidents_is_node_local_not_propagated_to_predecessors():
+    # No affected_nodes()-style propagation to callers -- see
+    # docs/Real_Data_Retraining_Plan.md: propagating a real incident to
+    # predecessors would bake in an unverified assumption from the synthetic
+    # scenarios' calibration, not something known about a real incident.
+    labels, _ = label_step_from_incidents(NODE_ORDER, [("primary_model", T0)], step_start=T0, step_end=T0)
+
+    assert labels["research_agent"] == 0
+    assert labels["synthesizer_agent"] == 0
+
+
+def test_label_step_from_incidents_unusable_without_wall_clock_bounds():
+    labels, usable = label_step_from_incidents(NODE_ORDER, [("primary_model", T0)], step_start=None, step_end=None)
+
+    assert all(v is False for v in usable.values())
+    assert all(v == 0 for v in labels.values())
+
+
+def test_label_step_from_incidents_ignores_unknown_node_names():
+    labels, usable = label_step_from_incidents(NODE_ORDER, [("not_a_real_node", T0)], step_start=T0, step_end=T0)
+
     assert all(v == 0 for v in labels.values())
     assert all(usable.values())

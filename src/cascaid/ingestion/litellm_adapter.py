@@ -7,7 +7,7 @@ adapter around each node's execution.
 from __future__ import annotations
 
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timezone
 
 from cascaid.ingestion.runtime_context import current_node, current_run_id, current_step
 from cascaid.ingestion.schema import CallEvent, NodeType
@@ -36,6 +36,10 @@ def litellm_success_to_call_event(
         error=False,
         retried=False,
         token_cost=kwargs.get("response_cost") or 0.0,
+        # datetime.now(), not litellm's own start_time/end_time -- those are naive
+        # local-clock timestamps with no guaranteed timezone, and occurred_at needs
+        # to compare against IncidentLabel.occurred_at (stored tz-aware UTC).
+        occurred_at=datetime.now(timezone.utc),
     )
 
 
@@ -66,6 +70,7 @@ def litellm_failure_to_call_event(
         error=True,
         retried=False,
         token_cost=kwargs.get("response_cost") or 0.0,
+        occurred_at=datetime.now(timezone.utc),
     )
 
 
