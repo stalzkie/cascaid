@@ -121,6 +121,27 @@ def test_main_exits_nonzero_for_an_unknown_auth_subcommand():
     assert exc_info.value.code != 0
 
 
+def test_main_dispatches_explain_configure_with_passthrough_args_as_argv(monkeypatch):
+    captured: dict[str, list[str]] = {}
+
+    def fake_main():
+        import sys as sys_
+
+        captured["argv"] = list(sys_.argv)
+
+    monkeypatch.setattr(cli.explain_configure_cli, "main", fake_main)
+
+    cli.main(["explain", "configure", "--database-url", "sqlite:///x.db", "--enable"])
+
+    assert captured["argv"] == ["explain configure", "--database-url", "sqlite:///x.db", "--enable"]
+
+
+def test_main_exits_nonzero_for_an_unknown_explain_subcommand():
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(["explain", "not-a-real-subcommand"])
+    assert exc_info.value.code != 0
+
+
 def test_main_dispatches_mcp_with_passthrough_args_as_argv(monkeypatch):
     captured: dict[str, list[str]] = {}
 
