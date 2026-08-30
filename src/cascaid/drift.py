@@ -21,8 +21,9 @@ from cascaid.serving.drift import DRIFT_THRESHOLD, compute_drift, load_reference
 
 
 def check_drift(
-    store_dir: str | Path, run_id: str, reference: dict, feature_names: list[str] = FEATURE_NAMES
+    store_dir: str | Path, run_id: str, reference: dict, feature_names: list[str] | None = None
 ) -> dict[str, float]:
+    feature_names = feature_names if feature_names is not None else FEATURE_NAMES
     paths = list_snapshots(store_dir, run_id)
     if not paths:
         return {}
@@ -31,19 +32,21 @@ def check_drift(
 
 
 def _maybe_alert(run_id: str, drifted: dict[str, float], database_url: str) -> None:
-    from cascaid.alerting.dispatch import send_webhook
+    from cascaid.alerting.dispatch import enabled_webhook_url, send_webhook
     from cascaid.alerting.rules import Alert
     from cascaid.storage.db import get_engine, make_session_factory
-    from cascaid.storage.repository import get_config, init_db, record_alert
+    from cascaid.storage.repository import init_db, record_alert
 
     init_db(get_engine(database_url))
     with make_session_factory(database_url)() as session:
-        if get_config(session, "alerting_enabled", default="false") != "true":
-            return
-        webhook_url = get_config(session, "alert_webhook_url")
+        webhook_url = enabled_webhook_url(session)
         if not webhook_url:
             return
         for name, score in drifted.items():
+            # node_type is normally one of agent/tool/model_endpoint/vector_store
+            # (rules._LABEL_BY_NODE_TYPE's vocabulary) -- "drift" is deliberately
+            # outside it, since this alert is about an input *feature*, not a
+            # pipeline node, and never goes through rules.evaluate_risk/_message.
             alert = Alert(
                 run_id=run_id,
                 node_name=name,

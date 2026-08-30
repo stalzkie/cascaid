@@ -32,6 +32,11 @@ def compute_reference(features: np.ndarray, feature_names: list[str], n_bins: in
         quantiles = np.linspace(0, 1, n_bins + 1)
         edges = np.unique(np.quantile(column, quantiles))
         if len(edges) < 2:
+            # A feature that's constant across all of training (quantiles collapse
+            # to one point) still needs two distinct edges for np.histogram below.
+            # The +1.0 width is arbitrary but harmless: every training value falls
+            # in this single bin regardless, and compute_drift bins `observed` into
+            # these same edges, so a later non-constant value just lands outside it.
             edges = np.array([column.min(), column.min() + 1.0])
         counts, _ = np.histogram(column, bins=edges)
         proportions = counts / max(counts.sum(), 1)
