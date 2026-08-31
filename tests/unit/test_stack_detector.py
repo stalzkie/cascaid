@@ -64,3 +64,11 @@ def test_detects_openai_direct_sdk_when_available():
 def test_detects_anthropic_and_openai_direct_sdks_independently():
     stack = detect_stack(is_available=lambda module: module in ("anthropic", "openai"))
     assert stack.direct_sdks == frozenset({"anthropic", "openai"})
+
+
+def test_detects_gemini_direct_sdk_when_available():
+    # google-genai's importable package is google.genai, not literally "gemini" --
+    # is_available is probed with the real module path, direct_sdks still reports
+    # the friendly vendor label.
+    stack = detect_stack(is_available=lambda module: module == "google.genai")
+    assert stack.direct_sdks == frozenset({"gemini"})

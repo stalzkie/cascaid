@@ -21,7 +21,11 @@ VECTOR_DB_MODULES = ["pinecone", "weaviate", "pgvector"]
 # exclusively like model_gateway below: "litellm is present" and "the anthropic SDK is
 # present" are orthogonal facts about a pipeline (see
 # docs/adr/0001-anthropic-before-openai-direct-sdk-adapter.md), not competing answers.
-DIRECT_SDK_MODULES = ["anthropic", "openai"]
+# Maps the vendor label used in DetectedStack.direct_sdks/_instrument_bootstrap.py to
+# the actual dotted module `importlib` needs to probe -- these coincide for
+# anthropic/openai, but google-genai's importable package is `google.genai`, not
+# literally "gemini" (verified via introspection, see gemini_adapter.py).
+DIRECT_SDK_MODULES = {"anthropic": "anthropic", "openai": "openai", "gemini": "google.genai"}
 
 
 def _module_is_available(module: str) -> bool:
@@ -40,7 +44,7 @@ def detect_stack(is_available: Callable[[str], bool] = _module_is_available) -> 
     orchestrators = frozenset(m for m in ORCHESTRATOR_MODULES if is_available(m))
     model_gateway = "litellm" if is_available("litellm") else None
     vector_db = next((m for m in VECTOR_DB_MODULES if is_available(m)), None)
-    direct_sdks = frozenset(m for m in DIRECT_SDK_MODULES if is_available(m))
+    direct_sdks = frozenset(label for label, module in DIRECT_SDK_MODULES.items() if is_available(module))
     return DetectedStack(
         orchestrators=orchestrators, model_gateway=model_gateway, vector_db=vector_db, direct_sdks=direct_sdks
     )

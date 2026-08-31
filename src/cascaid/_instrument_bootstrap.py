@@ -68,6 +68,11 @@ def bootstrap() -> None:
 
         instrument_openai(sink=_file_sink(events_path) if events_path else (lambda event: None))
 
+    if "gemini" in stack.direct_sdks:
+        from cascaid.ingestion.gemini_adapter import instrument_gemini
+
+        instrument_gemini(sink=_file_sink(events_path) if events_path else (lambda event: None))
+
     # pgvector is intentionally excluded: it's not a distinct client library (a
     # Postgres extension invoked through psycopg/SQLAlchemy), so reliably
     # detecting "this query is a vector similarity search" without false

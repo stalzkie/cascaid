@@ -11,6 +11,7 @@ import pytest
 import cascaid._instrument_bootstrap as bootstrap_module
 import cascaid.ingestion.anthropic_adapter as anthropic_adapter
 import cascaid.ingestion.crewai_adapter as crewai_adapter
+import cascaid.ingestion.gemini_adapter as gemini_adapter
 import cascaid.ingestion.langgraph_adapter as langgraph_adapter
 import cascaid.ingestion.litellm_adapter as litellm_adapter
 import cascaid.ingestion.openai_adapter as openai_adapter
@@ -242,6 +243,28 @@ def test_bootstrap_registers_openai_alongside_litellm_when_both_are_available(mo
 
     assert "litellm" in captured
     assert "openai" in captured
+
+
+def test_bootstrap_registers_gemini_instrumentation_when_detected(monkeypatch, tmp_path):
+    events_path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("CASCAID_RUN_ID", "run-1")
+    monkeypatch.setenv("CASCAID_EVENTS_PATH", str(events_path))
+
+    captured = {}
+    monkeypatch.setattr(gemini_adapter, "instrument_gemini", lambda sink: captured.update(sink=sink))
+
+    from cascaid.ingestion.stack_detector import DetectedStack
+
+    monkeypatch.setattr(
+        "cascaid.ingestion.stack_detector.detect_stack",
+        lambda: DetectedStack(
+            orchestrators=frozenset(), model_gateway=None, vector_db=None, direct_sdks=frozenset({"gemini"})
+        ),
+    )
+
+    bootstrap_module.bootstrap()
+
+    assert "sink" in captured
 
 
 def test_bootstrap_registers_pinecone_callbacks_when_detected(monkeypatch, tmp_path):
