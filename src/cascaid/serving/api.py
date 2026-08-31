@@ -21,6 +21,7 @@ from cascaid.models.gnn import CascadeGNN
 from cascaid.serving.risk import predict_risk
 from cascaid.storage.repository import get_config, record_alert, record_scores
 from cascaid.storage.retention import run_retention_loop
+from cascaid.storage.secrets import get_secret_config
 
 
 def _maybe_alert(session: Session, run_id: str, scores: dict[str, float], node_types: dict[str, str]) -> None:
@@ -90,7 +91,7 @@ def create_app(
             if get_config(session, "llm_explanations_enabled", default="false") != "true":
                 raise HTTPException(status_code=404, detail="LLM risk explanations are not enabled")
             base_url = get_config(session, "llm_base_url")
-            api_key = get_config(session, "llm_api_key", default="")
+            api_key = get_secret_config(session, "llm_api_key", default="")
             model_name = get_config(session, "llm_model")
 
         data = latest_snapshot(store_dir, run_id)

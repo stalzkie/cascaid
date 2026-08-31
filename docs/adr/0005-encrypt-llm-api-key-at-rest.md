@@ -27,6 +27,18 @@ identified, not hypothetical.
 - **Document as a known limitation** (rejected): zero build cost, but leaves a
   confirmed real secret in plaintext.
 
+**Implementation note (added when built):** the seam is dedicated
+`set_secret_config`/`get_secret_config` functions (`cascaid.storage.secrets`), not a
+hidden allowlist inside `repository.set_config`/`get_config`. Explicit function names
+at each call site are harder to silently get wrong than a magic-string allowlist a
+future sensitive `Config` key could easily miss, and this way the many existing
+`set_config`/`get_config` callers (`llm_base_url`, `llm_model`,
+`llm_explanations_enabled`, `auth_username`, ...) don't change behavior at all. The
+encryption key lives in `CASCAID_CONFIG_ENCRYPTION_KEY` (a Fernet key); a missing key
+or a value encrypted under a different key both raise a specific, actionable error
+(`MissingEncryptionKeyError`/`SecretDecryptionError`) rather than silently returning
+garbage or an empty string.
+
 ## Consequences
 
 - The encryption key itself needs somewhere to live that isn't the database -- an env

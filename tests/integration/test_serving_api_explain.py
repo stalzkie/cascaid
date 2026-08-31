@@ -5,6 +5,7 @@ opt-in per docs/Client_Readiness_and_YC_Grade_Assessment.md section 4)."""
 
 import pytest
 import torch
+from cryptography.fernet import Fernet
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
@@ -16,9 +17,17 @@ from cascaid.ingestion.graph_store import save_snapshot
 from cascaid.models.gnn import CascadeGNN
 from cascaid.serving.api import create_app
 from cascaid.storage.repository import init_db, set_config
+from cascaid.storage.secrets import set_secret_config
 
 IN_DIM = 6
 EDGE_DIM = 4
+
+
+@pytest.fixture(autouse=True)
+def _config_encryption_key(monkeypatch):
+    # ADR 0005: llm_api_key is encrypted at rest -- every test in this file that
+    # configures it needs a key present, even the ones that don't (harmless).
+    monkeypatch.setenv("CASCAID_CONFIG_ENCRYPTION_KEY", Fernet.generate_key().decode())
 
 
 def _snapshot(run_id: str, step: int) -> Data:
@@ -66,7 +75,7 @@ def test_explain_endpoint_returns_llm_text_when_enabled(tmp_path, httpserver):
     with session_factory() as session:
         set_config(session, "llm_explanations_enabled", "true")
         set_config(session, "llm_base_url", httpserver.url_for("/v1"))
-        set_config(session, "llm_api_key", "sk-test")
+        set_secret_config(session, "llm_api_key", "sk-test")
         set_config(session, "llm_model", "gpt-4o-mini")
     app = create_app(model=model, store_dir=tmp_path, session_factory=session_factory)
     client = TestClient(app)
@@ -104,7 +113,7 @@ def test_explain_endpoint_404s_for_unknown_node(tmp_path):
     with session_factory() as session:
         set_config(session, "llm_explanations_enabled", "true")
         set_config(session, "llm_base_url", "http://unused")
-        set_config(session, "llm_api_key", "sk-test")
+        set_secret_config(session, "llm_api_key", "sk-test")
         set_config(session, "llm_model", "gpt-4o-mini")
     app = create_app(model=model, store_dir=tmp_path, session_factory=session_factory)
     client = TestClient(app)
@@ -124,7 +133,7 @@ def test_explain_endpoint_503s_when_the_llm_endpoint_is_unreachable(tmp_path):
     with session_factory() as session:
         set_config(session, "llm_explanations_enabled", "true")
         set_config(session, "llm_base_url", "http://127.0.0.1:1/v1")
-        set_config(session, "llm_api_key", "sk-test")
+        set_secret_config(session, "llm_api_key", "sk-test")
         set_config(session, "llm_model", "gpt-4o-mini")
     app = create_app(model=model, store_dir=tmp_path, session_factory=session_factory)
     client = TestClient(app)

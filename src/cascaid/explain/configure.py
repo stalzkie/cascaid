@@ -8,6 +8,9 @@ docs/Client_Readiness_and_YC_Grade_Assessment.md section 4).
     python -m cascaid.explain.configure --database-url ... --enable \
         --base-url https://api.openai.com/v1 --api-key sk-... --model gpt-4o-mini
     python -m cascaid.explain.configure --database-url ... --disable
+
+--api-key is encrypted at rest (ADR 0005, see cascaid.storage.secrets) -- setting it
+requires CASCAID_CONFIG_ENCRYPTION_KEY to already be set in this process's environment.
 """
 
 from __future__ import annotations
@@ -16,6 +19,7 @@ import argparse
 
 from cascaid.storage.db import make_session_factory
 from cascaid.storage.repository import set_config
+from cascaid.storage.secrets import set_secret_config
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -41,7 +45,7 @@ def main():
         if args.base_url is not None:
             set_config(session, "llm_base_url", args.base_url)
         if args.api_key is not None:
-            set_config(session, "llm_api_key", args.api_key)
+            set_secret_config(session, "llm_api_key", args.api_key)
         if args.model is not None:
             set_config(session, "llm_model", args.model)
 
