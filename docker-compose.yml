@@ -9,6 +9,7 @@
 services:
   postgres:
     image: postgres:16
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
@@ -45,6 +46,7 @@ services:
   serve:
     build: .
     image: cascaid-backend:local
+    restart: unless-stopped
     depends_on:
       seed:
         condition: service_completed_successfully
@@ -56,10 +58,20 @@ services:
     command: sh -c "python -m cascaid.serve --model models/pretrained_base.pt --store data/graph_store --database-url $$DATABASE_URL --host 0.0.0.0 --port 8000"
     ports:
       - "8000:8000"
+    # No curl in the python:3.12-slim base image (see Dockerfile) -- urllib avoids
+    # adding an apt-get layer just for the healthcheck. A non-zero exit (including
+    # urlopen raising) fails the check, same as curl -f would.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   dashboard:
     build: .
     image: cascaid-backend:local
+    restart: unless-stopped
     depends_on:
       seed:
         condition: service_completed_successfully
@@ -70,12 +82,19 @@ services:
     command: sh -c "python -m cascaid.dashboard.serve --database-url $$DATABASE_URL --store data/graph_store --host 0.0.0.0 --port 8001"
     ports:
       - "8001:8001"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   frontend:
     build:
       context: ./frontend
       args:
         VITE_DASHBOARD_API_URL: http://localhost:8001
+    restart: unless-stopped
     depends_on:
       - dashboard
     ports:
