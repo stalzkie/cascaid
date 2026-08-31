@@ -65,7 +65,14 @@ def test_alembic_baseline_matches_create_all_schema_on_real_postgres():
             check=True,
             capture_output=True,
         )
-        alembic_schema = _reflect_schema(create_engine(alembic_url))
+        alembic_engine = create_engine(alembic_url)
+        try:
+            alembic_schema = _reflect_schema(alembic_engine)
+        finally:
+            # Postgres refuses to DROP DATABASE while a pooled connection is still
+            # open against it -- dispose before the outer finally's DROP runs, or it
+            # fails with "database is being accessed by other users".
+            alembic_engine.dispose()
     finally:
         with admin_engine.connect() as conn:
             conn.exec_driver_sql(f'DROP DATABASE IF EXISTS "{db_name}"')
