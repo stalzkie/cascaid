@@ -45,6 +45,12 @@ dev = [
     "crewai>=1.0",
     "anthropic>=1.2.0",
     "alembic>=1.19.1",
+    "openai>=2.54.0",
+    "google-genai>=2.20.0",
+    "chromadb>=1.1.1",
+    "qdrant-client>=1.19.0",
+    "pymilvus>=3.0.1",
+    "lancedb>=0.37.1",
 ]
 
 [project.urls]
