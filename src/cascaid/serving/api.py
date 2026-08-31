@@ -3,6 +3,8 @@ snapshot for a run from the Graph Store and returns the GNN's per-node risk scor
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
@@ -18,6 +20,7 @@ from cascaid.ingestion.graph_store import latest_snapshot
 from cascaid.models.gnn import CascadeGNN
 from cascaid.serving.risk import predict_risk
 from cascaid.storage.repository import get_config, record_alert, record_scores
+from cascaid.storage.retention import run_retention_loop
 
 
 def _maybe_alert(session: Session, run_id: str, scores: dict[str, float], node_types: dict[str, str]) -> None:
@@ -38,16 +41,31 @@ def _maybe_alert(session: Session, run_id: str, scores: dict[str, float], node_t
         )
 
 
+@contextlib.asynccontextmanager
+async def _lifespan(app: FastAPI):
+    # ADR 0004: retention is a background task in this process, not a separate
+    # container -- started on app startup, cancelled cleanly on shutdown so it
+    # doesn't outlive the app (e.g. across test client teardown).
+    task = asyncio.create_task(run_retention_loop(app.state.session_factory))
+    try:
+        yield
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+
 def create_app(
     model: CascadeGNN | None,
     store_dir: str | Path,
     session_factory: sessionmaker[Session],
 ) -> FastAPI:
-    app = FastAPI()
+    app = FastAPI(lifespan=_lifespan)
     # Self-hosted-first (PRD 5.2 Deployment): the frontend and this API run as
     # separate containers/origins within the customer's own VPC, not a multi-tenant
     # SaaS boundary, so an open CORS policy here doesn't cross a trust boundary.
     app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+    app.state.session_factory = session_factory
 
     require_auth = make_require_auth(session_factory)
 
