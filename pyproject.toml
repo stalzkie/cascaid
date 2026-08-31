@@ -43,6 +43,7 @@ dev = [
     "weaviate-client>=4.23.0",
     "crewai>=1.0",
     "anthropic>=1.2.0",
+    "alembic>=1.19.1",
 ]
 
 [project.urls]

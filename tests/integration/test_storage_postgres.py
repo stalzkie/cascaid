@@ -8,6 +8,7 @@ import os
 from datetime import datetime, timezone
 
 import pytest
+from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import Session
 
 from cascaid.storage.db import get_engine
@@ -24,6 +25,52 @@ from cascaid.storage.repository import (
 DATABASE_URL = os.environ.get("CASCAID_TEST_DATABASE_URL")
 
 pytestmark = pytest.mark.skipif(not DATABASE_URL, reason="CASCAID_TEST_DATABASE_URL not set")
+
+
+def _reflect_schema(engine) -> dict[str, dict[str, str]]:
+    inspector = inspect(engine)
+    return {
+        table: {col["name"]: str(col["type"]) for col in inspector.get_columns(table)}
+        for table in sorted(inspector.get_table_names())
+        if table not in ("alembic_version",)
+    }
+
+
+@pytest.mark.integration
+def test_alembic_baseline_matches_create_all_schema_on_real_postgres():
+    """Same guarantee as tests/unit/test_alembic_migrations.py, but against real
+    Postgres -- dialect-specific behavior (e.g. Postgres's own autoincrement/serial
+    handling) only shows up here, not against SQLite."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    repo_root = Path(__file__).resolve().parents[2]
+    create_all_engine = get_engine(DATABASE_URL)
+    init_db(create_all_engine)
+    create_all_schema = _reflect_schema(create_all_engine)
+
+    alembic_url = DATABASE_URL.rsplit("/", 1)[0] + "/cascaid_alembic_parity_test"
+    admin_engine = create_engine(DATABASE_URL, isolation_level="AUTOCOMMIT")
+    db_name = alembic_url.rsplit("/", 1)[1]
+    with admin_engine.connect() as conn:
+        conn.exec_driver_sql(f'DROP DATABASE IF EXISTS "{db_name}"')
+        conn.exec_driver_sql(f'CREATE DATABASE "{db_name}"')
+    try:
+        env = {**os.environ, "DATABASE_URL": alembic_url}
+        subprocess.run(
+            [sys.executable, "-m", "alembic", "upgrade", "head"],
+            cwd=repo_root,
+            env=env,
+            check=True,
+            capture_output=True,
+        )
+        alembic_schema = _reflect_schema(create_engine(alembic_url))
+    finally:
+        with admin_engine.connect() as conn:
+            conn.exec_driver_sql(f'DROP DATABASE IF EXISTS "{db_name}"')
+
+    assert alembic_schema == create_all_schema
 
 
 @pytest.mark.integration
