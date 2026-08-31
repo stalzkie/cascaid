@@ -33,3 +33,24 @@ def test_detects_litellm_model_gateway_when_available():
 def test_detects_pinecone_vector_db_when_available():
     stack = detect_stack(is_available=lambda module: module == "pinecone")
     assert stack.vector_db == "pinecone"
+
+
+def test_detects_anthropic_direct_sdk_when_available():
+    stack = detect_stack(is_available=lambda module: module == "anthropic")
+    assert stack.direct_sdks == frozenset({"anthropic"})
+
+
+def test_detects_anthropic_direct_sdk_independently_of_litellm_model_gateway():
+    # A pipeline can use litellm for most calls and a raw anthropic.Client()
+    # elsewhere -- these are orthogonal facts, not competing answers to one
+    # question (see docs/adr/0001-anthropic-before-openai-direct-sdk-adapter.md),
+    # so both must be detected together, unlike model_gateway/vector_db's
+    # exclusive next().
+    stack = detect_stack(is_available=lambda module: module in ("litellm", "anthropic"))
+    assert stack.model_gateway == "litellm"
+    assert stack.direct_sdks == frozenset({"anthropic"})
+
+
+def test_detects_no_direct_sdk_when_none_available():
+    stack = detect_stack(is_available=lambda module: False)
+    assert stack.direct_sdks == frozenset()

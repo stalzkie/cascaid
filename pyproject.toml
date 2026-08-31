@@ -42,6 +42,7 @@ dev = [
     "pinecone>=9.1.0",
     "weaviate-client>=4.23.0",
     "crewai>=1.0",
+    "anthropic>=1.2.0",
 ]
 
 [project.urls]

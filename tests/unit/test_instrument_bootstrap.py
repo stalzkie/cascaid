@@ -9,6 +9,7 @@ import json
 import pytest
 
 import cascaid._instrument_bootstrap as bootstrap_module
+import cascaid.ingestion.anthropic_adapter as anthropic_adapter
 import cascaid.ingestion.crewai_adapter as crewai_adapter
 import cascaid.ingestion.langgraph_adapter as langgraph_adapter
 import cascaid.ingestion.litellm_adapter as litellm_adapter
@@ -140,6 +141,56 @@ def test_bootstrap_registers_litellm_callbacks_when_detected(monkeypatch, tmp_pa
     bootstrap_module.bootstrap()
 
     assert "sink" in captured
+
+
+def test_bootstrap_registers_anthropic_instrumentation_when_detected(monkeypatch, tmp_path):
+    events_path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("CASCAID_RUN_ID", "run-1")
+    monkeypatch.setenv("CASCAID_EVENTS_PATH", str(events_path))
+
+    captured = {}
+    monkeypatch.setattr(anthropic_adapter, "instrument_anthropic", lambda sink: captured.update(sink=sink))
+
+    from cascaid.ingestion.stack_detector import DetectedStack
+
+    monkeypatch.setattr(
+        "cascaid.ingestion.stack_detector.detect_stack",
+        lambda: DetectedStack(
+            orchestrators=frozenset(), model_gateway=None, vector_db=None, direct_sdks=frozenset({"anthropic"})
+        ),
+    )
+
+    bootstrap_module.bootstrap()
+
+    assert "sink" in captured
+
+
+def test_bootstrap_registers_anthropic_alongside_litellm_when_both_are_available(monkeypatch, tmp_path):
+    # Regression test: direct_sdks and model_gateway are orthogonal facts about a
+    # pipeline (see docs/adr/0001-anthropic-before-openai-direct-sdk-adapter.md), so a
+    # pipeline that has both litellm and the anthropic SDK installed must get both
+    # adapters wired, not just one.
+    events_path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("CASCAID_RUN_ID", "run-1")
+    monkeypatch.setenv("CASCAID_EVENTS_PATH", str(events_path))
+
+    captured = {}
+    monkeypatch.setattr(litellm_adapter, "register_litellm_callbacks", lambda sink: captured.update(litellm=sink))
+    monkeypatch.setattr(anthropic_adapter, "instrument_anthropic", lambda sink: captured.update(anthropic=sink))
+
+    from cascaid.ingestion.stack_detector import DetectedStack
+
+    monkeypatch.setattr(
+        "cascaid.ingestion.stack_detector.detect_stack",
+        lambda: DetectedStack(
+            orchestrators=frozenset(), model_gateway="litellm", vector_db=None, direct_sdks=frozenset({"anthropic"})
+        ),
+    )
+
+    bootstrap_module.bootstrap()
+
+    assert "litellm" in captured
+    assert "anthropic" in captured
 
 
 def test_bootstrap_registers_pinecone_callbacks_when_detected(monkeypatch, tmp_path):
