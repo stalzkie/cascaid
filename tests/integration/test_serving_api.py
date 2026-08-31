@@ -63,6 +63,21 @@ def test_health_endpoint_returns_ok(tmp_path):
     assert response.json() == {"status": "ok"}
 
 
+def test_cors_allows_cross_origin_requests(tmp_path):
+    # Self-hosted-first (PRD 5.2 Deployment): the frontend and this API run as
+    # separate containers/origins within the customer's own VPC, so an open CORS
+    # policy here is expected -- see the identical policy/rationale already applied
+    # to cascaid.dashboard.api.create_app.
+    torch.manual_seed(0)
+    app = create_app(model=None, store_dir=tmp_path, session_factory=_session_factory())
+    client = TestClient(app)
+
+    response = client.get("/health", headers={"Origin": "http://localhost:3000"})
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "*"
+
+
 @pytest.mark.integration
 def test_risk_endpoint_returns_scores_for_latest_snapshot(tmp_path):
     torch.manual_seed(0)

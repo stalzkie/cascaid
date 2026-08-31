@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session, sessionmaker
 
 from cascaid.alerting.dispatch import alert_channel_config, enabled_webhook_url, send_webhook
@@ -43,6 +44,11 @@ def create_app(
     session_factory: sessionmaker[Session],
 ) -> FastAPI:
     app = FastAPI()
+    # Self-hosted-first (PRD 5.2 Deployment): the frontend and this API run as
+    # separate containers/origins within the customer's own VPC, not a multi-tenant
+    # SaaS boundary, so an open CORS policy here doesn't cross a trust boundary.
+    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
     require_auth = make_require_auth(session_factory)
 
     @app.get("/health")
