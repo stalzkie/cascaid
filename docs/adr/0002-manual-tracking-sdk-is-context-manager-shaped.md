@@ -19,6 +19,19 @@ the block and builds the `CallEvent` automatically, including catching an except
 raised inside the block as `error=True` before re-raising it -- the customer never
 computes latency or wires up their own try/except for attribution.
 
+`current_run_id` is set process-wide by `_instrument_bootstrap.py` regardless of what's
+detected, but `current_step` today is set *only* by `langgraph_adapter.py` and
+`crewai_adapter.py` -- for a pipeline with neither (the manual SDK's actual target case),
+nothing would ever set it, so `observe_call` alone would silently no-op every time via
+the same "skip when run context isn't set" guard every other adapter uses. The manual
+SDK therefore also needs to expose a step-boundary primitive -- re-exporting
+`runtime_context.track_step` (and `track_run`, for a customer not running via `cascaid
+run` at all) under the public surface, not inventing a new mechanism -- so a customer
+doing hand-rolled orchestration marks step boundaries the same way LangGraph/CrewAI
+integration does it for them automatically. `src/cascaid/__init__.py` is currently empty;
+this is also the first time a customer-facing public namespace (`import cascaid;
+cascaid.observe_call(...)`) gets established at all.
+
 ## Considered Options
 
 - **Decorator** (`@cascaid.trace(callee=...)`, rejected): reads well for a call
