@@ -11,12 +11,28 @@ boundary Cascaid's contextvar-based attribution didn't account for. Each
 has a regression test; `staging` is green (248 tests, run 2x consecutively
 for stability before merging each one).
 
+**Update (2026-08-31, later same window):** the scoping conversation happened
+and direct Anthropic SDK instrumentation shipped -- PR #50, merged to
+`staging`. See `docs/adr/0001-anthropic-before-openai-direct-sdk-adapter.md`
+for the decision record: Anthropic first (not OpenAI) because litellm's
+OpenAI provider internally uses the real `openai.OpenAI`/`AsyncOpenAI`
+client (confirmed in `litellm/llms/openai/openai.py`), so a direct OpenAI
+adapter would double-count calls litellm itself already sinks -- litellm's
+Anthropic path has no such dependency. `DetectedStack` gained
+`direct_sdks: frozenset[str]`, detected independently of `model_gateway`
+(same pattern as `orchestrators`). 12 new tests, full suite green twice
+(258 passed, 2 skipped both runs).
+
 **Not started yet, pick up next session:**
-- Direct OpenAI/Anthropic/Gemini SDK instrumentation -- confirmed precisely
-  as the largest remaining compatibility gap (`stack_detector.py` never
-  checks for these packages at all), but it's a new-adapter build, not a
-  bug fix, and needs a scoping conversation first (which SDK(s) first, how
-  much to unify with the litellm adapter's shape) before starting.
+- Direct OpenAI SDK instrumentation -- the "coexist with dedup" design is
+  decided (see the ADR above) but not built: the OpenAI adapter's patched
+  `create()` needs to check for cascaid's own litellm metadata marker on a
+  call and skip it if litellm's adapter already sinked a `CallEvent` for
+  it, so litellm + a raw `openai.Client()` in the same pipeline compose
+  instead of double-counting.
+- Direct Gemini SDK instrumentation -- not scoped yet at all (unlike
+  OpenAI, no double-counting risk has been checked; litellm's Gemini/Vertex
+  path was only glanced at, not confirmed either way).
 - A generic manual-tracking fallback SDK for frameworks Cascaid doesn't
   auto-detect (AutoGen, hand-rolled orchestration).
 - Additional vector DB adapters (Chroma/Qdrant/Milvus/LanceDB).
