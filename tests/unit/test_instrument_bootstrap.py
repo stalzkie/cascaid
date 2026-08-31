@@ -39,7 +39,7 @@ def test_bootstrap_sets_current_run_id_from_env(monkeypatch):
     monkeypatch.delenv("CASCAID_EVENTS_PATH", raising=False)
     monkeypatch.setattr(
         "cascaid.ingestion.stack_detector.detect_stack",
-        lambda: DetectedStack(orchestrators=frozenset(), model_gateway=None, vector_db=None),
+        lambda: DetectedStack(orchestrators=frozenset(), model_gateway=None, vector_dbs=frozenset()),
     )
 
     bootstrap_module.bootstrap()
@@ -61,7 +61,7 @@ def test_bootstrap_registers_langgraph_instrumentation_when_detected(monkeypatch
 
     monkeypatch.setattr(
         "cascaid.ingestion.stack_detector.detect_stack",
-        lambda: DetectedStack(orchestrators=frozenset({"langgraph"}), model_gateway=None, vector_db=None),
+        lambda: DetectedStack(orchestrators=frozenset({"langgraph"}), model_gateway=None, vector_dbs=frozenset()),
     )
 
     bootstrap_module.bootstrap()
@@ -84,7 +84,7 @@ def test_bootstrap_registers_crewai_instrumentation_when_detected(monkeypatch, t
 
     monkeypatch.setattr(
         "cascaid.ingestion.stack_detector.detect_stack",
-        lambda: DetectedStack(orchestrators=frozenset({"crewai"}), model_gateway=None, vector_db=None),
+        lambda: DetectedStack(orchestrators=frozenset({"crewai"}), model_gateway=None, vector_dbs=frozenset()),
     )
 
     bootstrap_module.bootstrap()
@@ -116,7 +116,9 @@ def test_bootstrap_registers_both_orchestrators_when_both_are_available(monkeypa
 
     monkeypatch.setattr(
         "cascaid.ingestion.stack_detector.detect_stack",
-        lambda: DetectedStack(orchestrators=frozenset({"langgraph", "crewai"}), model_gateway=None, vector_db=None),
+        lambda: DetectedStack(
+            orchestrators=frozenset({"langgraph", "crewai"}), model_gateway=None, vector_dbs=frozenset()
+        ),
     )
 
     bootstrap_module.bootstrap()
@@ -137,7 +139,7 @@ def test_bootstrap_registers_litellm_callbacks_when_detected(monkeypatch, tmp_pa
 
     monkeypatch.setattr(
         "cascaid.ingestion.stack_detector.detect_stack",
-        lambda: DetectedStack(orchestrators=frozenset(), model_gateway="litellm", vector_db=None),
+        lambda: DetectedStack(orchestrators=frozenset(), model_gateway="litellm", vector_dbs=frozenset()),
     )
 
     bootstrap_module.bootstrap()
@@ -158,7 +160,7 @@ def test_bootstrap_registers_anthropic_instrumentation_when_detected(monkeypatch
     monkeypatch.setattr(
         "cascaid.ingestion.stack_detector.detect_stack",
         lambda: DetectedStack(
-            orchestrators=frozenset(), model_gateway=None, vector_db=None, direct_sdks=frozenset({"anthropic"})
+            orchestrators=frozenset(), model_gateway=None, vector_dbs=frozenset(), direct_sdks=frozenset({"anthropic"})
         ),
     )
 
@@ -185,7 +187,10 @@ def test_bootstrap_registers_anthropic_alongside_litellm_when_both_are_available
     monkeypatch.setattr(
         "cascaid.ingestion.stack_detector.detect_stack",
         lambda: DetectedStack(
-            orchestrators=frozenset(), model_gateway="litellm", vector_db=None, direct_sdks=frozenset({"anthropic"})
+            orchestrators=frozenset(),
+            model_gateway="litellm",
+            vector_dbs=frozenset(),
+            direct_sdks=frozenset({"anthropic"}),
         ),
     )
 
@@ -208,7 +213,7 @@ def test_bootstrap_registers_openai_instrumentation_when_detected(monkeypatch, t
     monkeypatch.setattr(
         "cascaid.ingestion.stack_detector.detect_stack",
         lambda: DetectedStack(
-            orchestrators=frozenset(), model_gateway=None, vector_db=None, direct_sdks=frozenset({"openai"})
+            orchestrators=frozenset(), model_gateway=None, vector_dbs=frozenset(), direct_sdks=frozenset({"openai"})
         ),
     )
 
@@ -235,7 +240,10 @@ def test_bootstrap_registers_openai_alongside_litellm_when_both_are_available(mo
     monkeypatch.setattr(
         "cascaid.ingestion.stack_detector.detect_stack",
         lambda: DetectedStack(
-            orchestrators=frozenset(), model_gateway="litellm", vector_db=None, direct_sdks=frozenset({"openai"})
+            orchestrators=frozenset(),
+            model_gateway="litellm",
+            vector_dbs=frozenset(),
+            direct_sdks=frozenset({"openai"}),
         ),
     )
 
@@ -258,7 +266,7 @@ def test_bootstrap_registers_gemini_instrumentation_when_detected(monkeypatch, t
     monkeypatch.setattr(
         "cascaid.ingestion.stack_detector.detect_stack",
         lambda: DetectedStack(
-            orchestrators=frozenset(), model_gateway=None, vector_db=None, direct_sdks=frozenset({"gemini"})
+            orchestrators=frozenset(), model_gateway=None, vector_dbs=frozenset(), direct_sdks=frozenset({"gemini"})
         ),
     )
 
@@ -279,7 +287,7 @@ def test_bootstrap_registers_pinecone_callbacks_when_detected(monkeypatch, tmp_p
 
     monkeypatch.setattr(
         "cascaid.ingestion.stack_detector.detect_stack",
-        lambda: DetectedStack(orchestrators=frozenset(), model_gateway=None, vector_db="pinecone"),
+        lambda: DetectedStack(orchestrators=frozenset(), model_gateway=None, vector_dbs=frozenset({"pinecone"})),
     )
 
     bootstrap_module.bootstrap()
@@ -299,9 +307,118 @@ def test_bootstrap_registers_weaviate_callbacks_when_detected(monkeypatch, tmp_p
 
     monkeypatch.setattr(
         "cascaid.ingestion.stack_detector.detect_stack",
-        lambda: DetectedStack(orchestrators=frozenset(), model_gateway=None, vector_db="weaviate"),
+        lambda: DetectedStack(orchestrators=frozenset(), model_gateway=None, vector_dbs=frozenset({"weaviate"})),
     )
 
     bootstrap_module.bootstrap()
 
     assert "sink" in captured
+
+
+def test_bootstrap_registers_chroma_callbacks_when_detected(monkeypatch, tmp_path):
+    events_path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("CASCAID_RUN_ID", "run-1")
+    monkeypatch.setenv("CASCAID_EVENTS_PATH", str(events_path))
+
+    captured = {}
+    monkeypatch.setattr(vector_query_adapter, "register_chroma_callbacks", lambda sink: captured.update(sink=sink))
+
+    from cascaid.ingestion.stack_detector import DetectedStack
+
+    monkeypatch.setattr(
+        "cascaid.ingestion.stack_detector.detect_stack",
+        lambda: DetectedStack(orchestrators=frozenset(), model_gateway=None, vector_dbs=frozenset({"chroma"})),
+    )
+
+    bootstrap_module.bootstrap()
+
+    assert "sink" in captured
+
+
+def test_bootstrap_registers_qdrant_callbacks_when_detected(monkeypatch, tmp_path):
+    events_path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("CASCAID_RUN_ID", "run-1")
+    monkeypatch.setenv("CASCAID_EVENTS_PATH", str(events_path))
+
+    captured = {}
+    monkeypatch.setattr(vector_query_adapter, "register_qdrant_callbacks", lambda sink: captured.update(sink=sink))
+
+    from cascaid.ingestion.stack_detector import DetectedStack
+
+    monkeypatch.setattr(
+        "cascaid.ingestion.stack_detector.detect_stack",
+        lambda: DetectedStack(orchestrators=frozenset(), model_gateway=None, vector_dbs=frozenset({"qdrant"})),
+    )
+
+    bootstrap_module.bootstrap()
+
+    assert "sink" in captured
+
+
+def test_bootstrap_registers_milvus_callbacks_when_detected(monkeypatch, tmp_path):
+    events_path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("CASCAID_RUN_ID", "run-1")
+    monkeypatch.setenv("CASCAID_EVENTS_PATH", str(events_path))
+
+    captured = {}
+    monkeypatch.setattr(vector_query_adapter, "register_milvus_callbacks", lambda sink: captured.update(sink=sink))
+
+    from cascaid.ingestion.stack_detector import DetectedStack
+
+    monkeypatch.setattr(
+        "cascaid.ingestion.stack_detector.detect_stack",
+        lambda: DetectedStack(orchestrators=frozenset(), model_gateway=None, vector_dbs=frozenset({"milvus"})),
+    )
+
+    bootstrap_module.bootstrap()
+
+    assert "sink" in captured
+
+
+def test_bootstrap_registers_lancedb_callbacks_when_detected(monkeypatch, tmp_path):
+    events_path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("CASCAID_RUN_ID", "run-1")
+    monkeypatch.setenv("CASCAID_EVENTS_PATH", str(events_path))
+
+    captured = {}
+    monkeypatch.setattr(vector_query_adapter, "register_lancedb_callbacks", lambda sink: captured.update(sink=sink))
+
+    from cascaid.ingestion.stack_detector import DetectedStack
+
+    monkeypatch.setattr(
+        "cascaid.ingestion.stack_detector.detect_stack",
+        lambda: DetectedStack(orchestrators=frozenset(), model_gateway=None, vector_dbs=frozenset({"lancedb"})),
+    )
+
+    bootstrap_module.bootstrap()
+
+    assert "sink" in captured
+
+
+def test_bootstrap_registers_pinecone_and_chroma_together_when_both_are_available(monkeypatch, tmp_path):
+    # Regression test: vector_dbs is a frozenset, not a single exclusive value -- a
+    # pipeline with two vector DBs installed (e.g. Pinecone in prod, Chroma for local
+    # dev/testing) must get both adapters wired, not just the first match.
+    events_path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("CASCAID_RUN_ID", "run-1")
+    monkeypatch.setenv("CASCAID_EVENTS_PATH", str(events_path))
+
+    captured = {}
+    monkeypatch.setattr(
+        vector_query_adapter, "register_pinecone_callbacks", lambda sink: captured.update(pinecone=sink)
+    )
+    monkeypatch.setattr(vector_query_adapter, "register_chroma_callbacks", lambda sink: captured.update(chroma=sink))
+
+    from cascaid.ingestion.stack_detector import DetectedStack
+
+    monkeypatch.setattr(
+        "cascaid.ingestion.stack_detector.detect_stack",
+        lambda: DetectedStack(
+            orchestrators=frozenset(), model_gateway=None, vector_dbs=frozenset({"pinecone", "chroma"})
+        ),
+    )
+
+    bootstrap_module.bootstrap()
+
+    assert "pinecone" in captured
+    assert "chroma" in captured

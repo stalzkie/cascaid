@@ -76,13 +76,34 @@ def bootstrap() -> None:
     # pgvector is intentionally excluded: it's not a distinct client library (a
     # Postgres extension invoked through psycopg/SQLAlchemy), so reliably
     # detecting "this query is a vector similarity search" without false
-    # positives needs more design than Pinecone/Weaviate's dedicated clients --
+    # positives needs more design than the dedicated clients below --
     # documented as a manual observe_vector_query() wrap for that stack.
-    if stack.vector_db == "pinecone":
+    #
+    # Every other detected vector DB is wired independently (vector_dbs is a
+    # frozenset, not a single exclusive value) -- a pipeline can genuinely use two
+    # at once (e.g. Pinecone in prod, Chroma for local dev/testing).
+    vector_db_sink = _file_sink(events_path) if events_path else (lambda event: None)
+    if "pinecone" in stack.vector_dbs:
         from cascaid.ingestion.vector_query_adapter import register_pinecone_callbacks
 
-        register_pinecone_callbacks(sink=_file_sink(events_path) if events_path else (lambda event: None))
-    elif stack.vector_db == "weaviate":
+        register_pinecone_callbacks(sink=vector_db_sink)
+    if "weaviate" in stack.vector_dbs:
         from cascaid.ingestion.vector_query_adapter import register_weaviate_callbacks
 
-        register_weaviate_callbacks(sink=_file_sink(events_path) if events_path else (lambda event: None))
+        register_weaviate_callbacks(sink=vector_db_sink)
+    if "chroma" in stack.vector_dbs:
+        from cascaid.ingestion.vector_query_adapter import register_chroma_callbacks
+
+        register_chroma_callbacks(sink=vector_db_sink)
+    if "qdrant" in stack.vector_dbs:
+        from cascaid.ingestion.vector_query_adapter import register_qdrant_callbacks
+
+        register_qdrant_callbacks(sink=vector_db_sink)
+    if "milvus" in stack.vector_dbs:
+        from cascaid.ingestion.vector_query_adapter import register_milvus_callbacks
+
+        register_milvus_callbacks(sink=vector_db_sink)
+    if "lancedb" in stack.vector_dbs:
+        from cascaid.ingestion.vector_query_adapter import register_lancedb_callbacks
+
+        register_lancedb_callbacks(sink=vector_db_sink)

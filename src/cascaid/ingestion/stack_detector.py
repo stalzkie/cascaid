@@ -16,7 +16,24 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 ORCHESTRATOR_MODULES = ["langgraph", "crewai"]
-VECTOR_DB_MODULES = ["pinecone", "weaviate", "pgvector"]
+# Vector DBs, detected independently like ORCHESTRATOR_MODULES/DIRECT_SDK_MODULES, not
+# exclusively via next() as this used to be: a pipeline can genuinely use two vector DBs
+# at once (e.g. Pinecone in prod, Chroma for local dev/testing in the same codebase) --
+# exclusive detection would silently under-instrument that, the same class of accuracy
+# problem PINECONE_QUERY_METHODS' own re-verification note in vector_query_adapter.py
+# already worries about. Maps the vendor label used in DetectedStack.vector_dbs/
+# _instrument_bootstrap.py to the actual importable module -- qdrant-client's package
+# imports as `qdrant_client`, chromadb's vendor label "chroma" imports as `chromadb`;
+# neither coincides with its label the way pinecone/weaviate/pgvector do.
+VECTOR_DB_MODULES = {
+    "pinecone": "pinecone",
+    "weaviate": "weaviate",
+    "pgvector": "pgvector",
+    "chroma": "chromadb",
+    "qdrant": "qdrant_client",
+    "milvus": "pymilvus",
+    "lancedb": "lancedb",
+}
 # Direct model-provider SDKs, detected independently like ORCHESTRATOR_MODULES, not
 # exclusively like model_gateway below: "litellm is present" and "the anthropic SDK is
 # present" are orthogonal facts about a pipeline (see
@@ -36,15 +53,15 @@ def _module_is_available(module: str) -> bool:
 class DetectedStack:
     orchestrators: frozenset[str] = field(default_factory=frozenset)
     model_gateway: str | None = None
-    vector_db: str | None = None
+    vector_dbs: frozenset[str] = field(default_factory=frozenset)
     direct_sdks: frozenset[str] = field(default_factory=frozenset)
 
 
 def detect_stack(is_available: Callable[[str], bool] = _module_is_available) -> DetectedStack:
     orchestrators = frozenset(m for m in ORCHESTRATOR_MODULES if is_available(m))
     model_gateway = "litellm" if is_available("litellm") else None
-    vector_db = next((m for m in VECTOR_DB_MODULES if is_available(m)), None)
+    vector_dbs = frozenset(label for label, module in VECTOR_DB_MODULES.items() if is_available(module))
     direct_sdks = frozenset(label for label, module in DIRECT_SDK_MODULES.items() if is_available(module))
     return DetectedStack(
-        orchestrators=orchestrators, model_gateway=model_gateway, vector_db=vector_db, direct_sdks=direct_sdks
+        orchestrators=orchestrators, model_gateway=model_gateway, vector_dbs=vector_dbs, direct_sdks=direct_sdks
     )

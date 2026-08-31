@@ -1,9 +1,17 @@
 """Times a vector-store query at its call site and produces a CallEvent (PRD section
-4.5, runtime seam). Covers pgvector, Pinecone, and Weaviate uniformly: none of them
-expose a callback registry like litellm's, so this needs an explicit wrapper around the
-query call rather than a passive hook -- and since the wrapper only measures elapsed
-time and catches exceptions around an arbitrary block, it doesn't care which client
-library is inside it.
+4.5, runtime seam). Covers pgvector, Pinecone, Weaviate, Chroma, Qdrant, Milvus, and
+LanceDB uniformly: none of them expose a callback registry like litellm's, so this needs
+an explicit wrapper around the query call rather than a passive hook -- and since the
+wrapper only measures elapsed time and catches exceptions around an arbitrary block, it
+doesn't care which client library is inside it.
+
+callee (the vector store's identity in a CallEvent) is derived differently across
+vendors: Pinecone/Weaviate/Chroma's query-shaped methods are called on a per-collection
+object that exposes its own `.name` (the default `getattr(self, "name", vendor_label)`
+in _wrap_vector_method covers these). Qdrant and Milvus's clients are NOT
+per-collection -- one QdrantClient/MilvusClient instance is called with
+`collection_name=...` as a kwarg on every query -- so those register_*_callbacks calls
+pass an explicit `callee_from` extractor instead.
 """
 
 from __future__ import annotations
@@ -119,12 +127,55 @@ WEAVIATE_QUERY_METHODS = [
     "fetch_objects_by_ids",
 ]
 
+# Verified 2026-08-31 via introspection against the installed chromadb==1.1.1 --
+# chromadb.api.models.Collection.Collection (and its async twin, AsyncCollection,
+# same method names). query/get/peek/search are read-shaped and hit the store; count()
+# is included for the same reason PINECONE_QUERY_METHODS includes fetch-family lookups
+# even though it's not similarity search.
+CHROMA_QUERY_METHODS = ["query", "get", "peek", "search", "count"]
 
-def _wrap_vector_method(vendor_label: str, original: Callable, sink_cell: list):
+# Verified 2026-08-31 against qdrant-client==1.19.0 -- this version has no `search`/
+# `recommend` methods at all (fully replaced by query_points/query_points_groups/
+# query_batch_points in this API generation); QdrantClient is NOT per-collection, every
+# call takes collection_name as a kwarg, so register_qdrant_callbacks passes an explicit
+# callee_from extractor rather than relying on _wrap_vector_method's `self.name` default.
+QDRANT_QUERY_METHODS = [
+    "query_points",
+    "query_points_groups",
+    "query_batch_points",
+    "scroll",
+    "retrieve",
+    "count",
+    "search_matrix_offsets",
+    "search_matrix_pairs",
+]
+
+# Verified 2026-08-31 against pymilvus==3.0.1 -- MilvusClient/AsyncMilvusClient are also
+# not per-collection (collection_name is a kwarg, same situation as Qdrant).
+# query_iterator/search_iterator exist on the sync client only (no async equivalent in
+# this version).
+MILVUS_QUERY_METHODS = ["search", "hybrid_search", "query", "query_iterator", "search_iterator", "get"]
+MILVUS_ASYNC_QUERY_METHODS = ["search", "hybrid_search", "query", "get"]
+
+
+def _default_callee(vendor_label: str) -> Callable[[object, tuple, dict], str]:
+    return lambda self, args, kwargs: getattr(self, "name", vendor_label)
+
+
+def _wrap_vector_method(
+    vendor_label: str,
+    original: Callable,
+    sink_cell: list,
+    callee_from: Callable[[object, tuple, dict], str] | None = None,
+):
     """sink_cell is a 1-element list so register_*_callbacks can retarget the sink
     on a repeat call without re-patching (same pattern as instrument_langgraph's
     module-level sink) -- each patched method gets its own cell, no shared mutable
     state across different methods or different query calls.
+
+    callee_from defaults to reading `self.name` (Pinecone/Weaviate/Chroma's
+    per-collection objects); pass an explicit extractor for a vendor whose client
+    isn't per-collection (see module docstring).
 
     Dispatches to an async wrapper when `original` is a coroutine function (e.g.
     Weaviate's _QueryCollectionAsync) -- a sync wrapper around an async method
@@ -132,6 +183,8 @@ def _wrap_vector_method(vendor_label: str, original: Callable, sink_cell: list):
     real query ever ran, the same class of bug fixed in langgraph_adapter.py's
     _wrap_invoke/_wrap_node_fn (see
     docs/Production_Readiness_and_Pipeline_Compatibility_Assessment.md)."""
+    callee_from = callee_from or _default_callee(vendor_label)
+
     if asyncio.iscoroutinefunction(original):
 
         @functools.wraps(original)
@@ -140,7 +193,7 @@ def _wrap_vector_method(vendor_label: str, original: Callable, sink_cell: list):
             if run_id is None or step is None:
                 return await original(self, *args, **kwargs)
 
-            callee = getattr(self, "name", vendor_label)
+            callee = callee_from(self, args, kwargs)
             caller = current_node.get() or "unknown"
             try:
                 async with observe_vector_query_async(caller, callee, run_id=run_id, step=step) as tracker:
@@ -158,7 +211,7 @@ def _wrap_vector_method(vendor_label: str, original: Callable, sink_cell: list):
         if run_id is None or step is None:
             return original(self, *args, **kwargs)
 
-        callee = getattr(self, "name", vendor_label)
+        callee = callee_from(self, args, kwargs)
         caller = current_node.get() or "unknown"
         try:
             with observe_vector_query(caller, callee, run_id=run_id, step=step) as tracker:
@@ -171,17 +224,41 @@ def _wrap_vector_method(vendor_label: str, original: Callable, sink_cell: list):
     return wrapped
 
 
-def _patch_methods(cls, method_names: list[str], vendor_label: str, sink: Callable[[CallEvent], None]) -> list:
+def _patch_methods(
+    cls,
+    method_names: list[str],
+    vendor_label: str,
+    sink: Callable[[CallEvent], None],
+    callee_from: Callable[[object, tuple, dict], str] | None = None,
+) -> list:
     sink_cell = [sink]
     for name in method_names:
         original = getattr(cls, name)
-        setattr(cls, name, _wrap_vector_method(vendor_label, original, sink_cell))
+        setattr(cls, name, _wrap_vector_method(vendor_label, original, sink_cell, callee_from))
     return sink_cell
+
+
+def _collection_name_kwarg(vendor_label: str) -> Callable[[object, tuple, dict], str]:
+    """Qdrant/Milvus clients aren't per-collection -- collection_name is the first
+    positional-or-keyword parameter on every query-shaped method (verified via
+    introspection), so it may arrive either way."""
+
+    def extract(self, args: tuple, kwargs: dict) -> str:
+        return kwargs.get("collection_name") or (args[0] if args else vendor_label)
+
+    return extract
 
 
 _patched_pinecone_sink: list[Callable[[CallEvent], None]] | None = None
 _patched_weaviate_sink: list[Callable[[CallEvent], None]] | None = None
 _patched_weaviate_async_sink: list[Callable[[CallEvent], None]] | None = None
+_patched_chroma_sink: list[Callable[[CallEvent], None]] | None = None
+_patched_chroma_async_sink: list[Callable[[CallEvent], None]] | None = None
+_patched_qdrant_sink: list[Callable[[CallEvent], None]] | None = None
+_patched_qdrant_async_sink: list[Callable[[CallEvent], None]] | None = None
+_patched_milvus_sink: list[Callable[[CallEvent], None]] | None = None
+_patched_milvus_async_sink: list[Callable[[CallEvent], None]] | None = None
+_patched_lancedb_sinks: list[list[Callable[[CallEvent], None]]] | None = None
 
 
 def register_pinecone_callbacks(sink: Callable[[CallEvent], None]) -> None:
@@ -219,3 +296,108 @@ def register_weaviate_callbacks(sink: Callable[[CallEvent], None]) -> None:
         _patched_weaviate_async_sink[0] = sink
     else:
         _patched_weaviate_async_sink = _patch_methods(_QueryCollectionAsync, WEAVIATE_QUERY_METHODS, "weaviate", sink)
+
+
+def register_chroma_callbacks(sink: Callable[[CallEvent], None]) -> None:
+    """Patches every Chroma query-shaped method (CHROMA_QUERY_METHODS) on both
+    Collection (sync) and AsyncCollection (chromadb's separate async client) --
+    both expose `.name`, so this uses _wrap_vector_method's default callee_from,
+    same as register_pinecone_callbacks."""
+    global _patched_chroma_sink, _patched_chroma_async_sink
+    from chromadb.api.models.AsyncCollection import AsyncCollection
+    from chromadb.api.models.Collection import Collection
+
+    if _patched_chroma_sink is not None:
+        _patched_chroma_sink[0] = sink
+    else:
+        _patched_chroma_sink = _patch_methods(Collection, CHROMA_QUERY_METHODS, "chroma", sink)
+
+    if _patched_chroma_async_sink is not None:
+        _patched_chroma_async_sink[0] = sink
+    else:
+        _patched_chroma_async_sink = _patch_methods(AsyncCollection, CHROMA_QUERY_METHODS, "chroma", sink)
+
+
+def register_qdrant_callbacks(sink: Callable[[CallEvent], None]) -> None:
+    """Patches every Qdrant query-shaped method (QDRANT_QUERY_METHODS) on both
+    QdrantClient (sync) and AsyncQdrantClient. Unlike Pinecone/Weaviate/Chroma,
+    QdrantClient isn't per-collection -- collection_name is a call-time argument, so
+    callee comes from _collection_name_kwarg instead of `self.name`."""
+    global _patched_qdrant_sink, _patched_qdrant_async_sink
+    from qdrant_client import AsyncQdrantClient, QdrantClient
+
+    callee_from = _collection_name_kwarg("qdrant")
+
+    if _patched_qdrant_sink is not None:
+        _patched_qdrant_sink[0] = sink
+    else:
+        _patched_qdrant_sink = _patch_methods(QdrantClient, QDRANT_QUERY_METHODS, "qdrant", sink, callee_from)
+
+    if _patched_qdrant_async_sink is not None:
+        _patched_qdrant_async_sink[0] = sink
+    else:
+        _patched_qdrant_async_sink = _patch_methods(
+            AsyncQdrantClient, QDRANT_QUERY_METHODS, "qdrant", sink, callee_from
+        )
+
+
+def register_milvus_callbacks(sink: Callable[[CallEvent], None]) -> None:
+    """Patches every Milvus query-shaped method on both MilvusClient (sync,
+    MILVUS_QUERY_METHODS) and AsyncMilvusClient (async, MILVUS_ASYNC_QUERY_METHODS --
+    a narrower list, this SDK version has no async query_iterator/search_iterator).
+    Same not-per-collection situation as Qdrant."""
+    global _patched_milvus_sink, _patched_milvus_async_sink
+    from pymilvus import AsyncMilvusClient, MilvusClient
+
+    callee_from = _collection_name_kwarg("milvus")
+
+    if _patched_milvus_sink is not None:
+        _patched_milvus_sink[0] = sink
+    else:
+        _patched_milvus_sink = _patch_methods(MilvusClient, MILVUS_QUERY_METHODS, "milvus", sink, callee_from)
+
+    if _patched_milvus_async_sink is not None:
+        _patched_milvus_async_sink[0] = sink
+    else:
+        _patched_milvus_async_sink = _patch_methods(
+            AsyncMilvusClient, MILVUS_ASYNC_QUERY_METHODS, "milvus", sink, callee_from
+        )
+
+
+def register_lancedb_callbacks(sink: Callable[[CallEvent], None]) -> None:
+    """Patches LanceQueryBuilder.to_arrow on LanceDB's concrete sync query-builder
+    subclasses (LanceVectorQueryBuilder, LanceFtsQueryBuilder, LanceHybridQueryBuilder,
+    LanceEmptyQueryBuilder).
+
+    LanceDB's query API is lazy, unlike every other vendor here: `table.search(...)`
+    just builds a LanceQueryBuilder and does not touch the store -- the real query
+    executes only when a terminal method (to_pandas/to_list/to_polars/to_pydantic/
+    to_arrow) is called on that builder (verified via introspection: all four of those
+    delegate to `self.to_arrow(...)` as their one common execution primitive, so
+    patching `to_arrow` alone covers every terminal method with exactly one CallEvent
+    per logical query, however the customer chose to materialize the result).
+    `to_arrow` is `@abstractmethod` on the base LanceQueryBuilder and each concrete
+    subclass supplies its own implementation, so the base class must NOT be patched
+    (Python's MRO would never reach it) -- each subclass needs patching individually.
+
+    Deliberately out of scope for this pass (not oversight): LanceDB's separate async
+    query classes (AsyncQuery/AsyncVectorQuery/etc. in lancedb.query), and
+    LanceTakeQueryBuilder (`.take_offsets()`/`.take_row_ids()`, a distinct, simpler
+    builder hierarchy not descended from LanceQueryBuilder). callee falls back to the
+    "lancedb" vendor label -- the query builder only reaches the underlying table via a
+    private `_inner` reference, too fragile to chase down here."""
+    global _patched_lancedb_sinks
+    from lancedb.query import (
+        LanceEmptyQueryBuilder,
+        LanceFtsQueryBuilder,
+        LanceHybridQueryBuilder,
+        LanceVectorQueryBuilder,
+    )
+
+    builder_classes = [LanceVectorQueryBuilder, LanceFtsQueryBuilder, LanceHybridQueryBuilder, LanceEmptyQueryBuilder]
+
+    if _patched_lancedb_sinks is not None:
+        for sink_cell in _patched_lancedb_sinks:
+            sink_cell[0] = sink
+        return
+    _patched_lancedb_sinks = [_patch_methods(cls, ["to_arrow"], "lancedb", sink) for cls in builder_classes]

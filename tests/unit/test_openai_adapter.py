@@ -1,3 +1,4 @@
+import time
 from datetime import timezone
 
 import litellm
@@ -11,6 +12,22 @@ from cascaid.ingestion.litellm_adapter import register_litellm_callbacks
 from cascaid.ingestion.openai_adapter import instrument_openai
 from cascaid.ingestion.runtime_context import track_node, track_run, track_step
 from cascaid.ingestion.schema import NodeType
+
+
+def _wait_for(predicate, timeout=2.0, interval=0.02):
+    # Same pattern as test_litellm_adapter.py's own _wait_for: litellm defers success-
+    # callback dispatch to a background thread even on the "sync" path when a real
+    # (non-mock_response) response flows through -- verified empirically, only surfaces
+    # once cost calculation/logging overhead is involved, which every *other* litellm
+    # test in this repo sidesteps entirely via mock_response=. This test can't use
+    # mock_response (it needs a real dispatch through the actual OpenAI client
+    # machinery to prove the dedup mechanism), so it's the first to need this wait.
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(interval)
+    raise AssertionError("timed out waiting for litellm's success callback to fire")
 
 
 def _real_chat_completion(model="gpt-4o-mini") -> ChatCompletion:
@@ -189,6 +206,9 @@ def test_a_litellm_dispatched_openai_call_is_sinked_once_by_litellm_not_twice_by
             litellm.completion(
                 model="gpt-4o-mini", api_key="test-key-dedup-scenario", messages=[{"role": "user", "content": "hi"}]
             )
+        # litellm defers success-callback dispatch to a background thread for a real
+        # (non-mock_response) response -- verified empirically, see _wait_for's docstring.
+        _wait_for(lambda: len(litellm_captured) == 1)
     finally:
         openai.resources.chat.completions.Completions.create = original_create
         litellm.success_callback = []
