@@ -21,7 +21,7 @@ VECTOR_DB_MODULES = ["pinecone", "weaviate", "pgvector"]
 # exclusively like model_gateway below: "litellm is present" and "the anthropic SDK is
 # present" are orthogonal facts about a pipeline (see
 # docs/adr/0001-anthropic-before-openai-direct-sdk-adapter.md), not competing answers.
-DIRECT_SDK_MODULES = ["anthropic"]
+DIRECT_SDK_MODULES = ["anthropic", "openai"]
 
 
 def _module_is_available(module: str) -> bool:

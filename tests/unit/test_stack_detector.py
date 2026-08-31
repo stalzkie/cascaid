@@ -54,3 +54,13 @@ def test_detects_anthropic_direct_sdk_independently_of_litellm_model_gateway():
 def test_detects_no_direct_sdk_when_none_available():
     stack = detect_stack(is_available=lambda module: False)
     assert stack.direct_sdks == frozenset()
+
+
+def test_detects_openai_direct_sdk_when_available():
+    stack = detect_stack(is_available=lambda module: module == "openai")
+    assert stack.direct_sdks == frozenset({"openai"})
+
+
+def test_detects_anthropic_and_openai_direct_sdks_independently():
+    stack = detect_stack(is_available=lambda module: module in ("anthropic", "openai"))
+    assert stack.direct_sdks == frozenset({"anthropic", "openai"})

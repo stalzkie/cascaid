@@ -13,6 +13,7 @@ import cascaid.ingestion.anthropic_adapter as anthropic_adapter
 import cascaid.ingestion.crewai_adapter as crewai_adapter
 import cascaid.ingestion.langgraph_adapter as langgraph_adapter
 import cascaid.ingestion.litellm_adapter as litellm_adapter
+import cascaid.ingestion.openai_adapter as openai_adapter
 import cascaid.ingestion.vector_query_adapter as vector_query_adapter
 from cascaid.ingestion.runtime_context import current_run_id
 from cascaid.ingestion.schema import NodeType
@@ -191,6 +192,56 @@ def test_bootstrap_registers_anthropic_alongside_litellm_when_both_are_available
 
     assert "litellm" in captured
     assert "anthropic" in captured
+
+
+def test_bootstrap_registers_openai_instrumentation_when_detected(monkeypatch, tmp_path):
+    events_path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("CASCAID_RUN_ID", "run-1")
+    monkeypatch.setenv("CASCAID_EVENTS_PATH", str(events_path))
+
+    captured = {}
+    monkeypatch.setattr(openai_adapter, "instrument_openai", lambda sink: captured.update(sink=sink))
+
+    from cascaid.ingestion.stack_detector import DetectedStack
+
+    monkeypatch.setattr(
+        "cascaid.ingestion.stack_detector.detect_stack",
+        lambda: DetectedStack(
+            orchestrators=frozenset(), model_gateway=None, vector_db=None, direct_sdks=frozenset({"openai"})
+        ),
+    )
+
+    bootstrap_module.bootstrap()
+
+    assert "sink" in captured
+
+
+def test_bootstrap_registers_openai_alongside_litellm_when_both_are_available(monkeypatch, tmp_path):
+    # Regression test: same orthogonality as anthropic+litellm above -- a pipeline
+    # with both litellm and the openai SDK installed gets both adapters wired. The
+    # dedup between them (litellm_adapter.inside_litellm_dispatch) is a runtime
+    # concern inside openai_adapter itself, not a wiring-time exclusion here.
+    events_path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("CASCAID_RUN_ID", "run-1")
+    monkeypatch.setenv("CASCAID_EVENTS_PATH", str(events_path))
+
+    captured = {}
+    monkeypatch.setattr(litellm_adapter, "register_litellm_callbacks", lambda sink: captured.update(litellm=sink))
+    monkeypatch.setattr(openai_adapter, "instrument_openai", lambda sink: captured.update(openai=sink))
+
+    from cascaid.ingestion.stack_detector import DetectedStack
+
+    monkeypatch.setattr(
+        "cascaid.ingestion.stack_detector.detect_stack",
+        lambda: DetectedStack(
+            orchestrators=frozenset(), model_gateway="litellm", vector_db=None, direct_sdks=frozenset({"openai"})
+        ),
+    )
+
+    bootstrap_module.bootstrap()
+
+    assert "litellm" in captured
+    assert "openai" in captured
 
 
 def test_bootstrap_registers_pinecone_callbacks_when_detected(monkeypatch, tmp_path):

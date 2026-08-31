@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import functools
 from collections.abc import Callable
+from contextvars import ContextVar
 from datetime import datetime, timezone
 
 from cascaid.ingestion.runtime_context import current_node, current_run_id, current_step
@@ -44,6 +45,19 @@ from cascaid.ingestion.schema import CallEvent, NodeType
 _METADATA_RUN_ID = "cascaid_run_id"
 _METADATA_STEP = "cascaid_step"
 _METADATA_NODE = "cascaid_node"
+
+# Dedup coordination with openai_adapter.py (ADR 0001): litellm's OpenAI provider path
+# calls openai_client.chat.completions.with_raw_response.create(...) internally, which
+# resolves through the same openai.resources.chat.completions.Completions.create the
+# openai adapter patches -- verified empirically, `with_raw_response` is a
+# @cached_property that looks up `completions.create` (dynamically, so it sees our
+# patch) at first access. Without this flag, litellm.completion()/acompletion() for an
+# OpenAI model would produce two CallEvents for one logical call: one from this
+# adapter's own callback registry, one from the openai adapter's create() wrapper.
+# Set True only around the actual dispatch to the real/patched create(), not for the
+# whole patched_completion/patched_acompletion call, so a customer's own direct
+# openai.OpenAI().chat.completions.create() call elsewhere is unaffected.
+inside_litellm_dispatch: ContextVar[bool] = ContextVar("inside_litellm_dispatch", default=False)
 
 
 def _cascaid_metadata(kwargs: dict) -> dict:
@@ -184,11 +198,19 @@ def _patch_completion_functions() -> None:
 
     @functools.wraps(original_completion)
     def patched_completion(*args, **kwargs):
-        return original_completion(*args, **_snapshot_context_into_metadata(kwargs))
+        token = inside_litellm_dispatch.set(True)
+        try:
+            return original_completion(*args, **_snapshot_context_into_metadata(kwargs))
+        finally:
+            inside_litellm_dispatch.reset(token)
 
     @functools.wraps(original_acompletion)
     async def patched_acompletion(*args, **kwargs):
-        return await original_acompletion(*args, **_snapshot_context_into_metadata(kwargs))
+        token = inside_litellm_dispatch.set(True)
+        try:
+            return await original_acompletion(*args, **_snapshot_context_into_metadata(kwargs))
+        finally:
+            inside_litellm_dispatch.reset(token)
 
     litellm.completion = patched_completion
     litellm.acompletion = patched_acompletion

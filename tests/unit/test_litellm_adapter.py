@@ -3,10 +3,12 @@ import time
 from datetime import datetime, timezone
 
 import litellm
+import openai
 
 from cascaid.ingestion.litellm_adapter import (
     _build_async_cascaid_logger,
     _snapshot_context_into_metadata,
+    inside_litellm_dispatch,
     litellm_failure_to_call_event,
     litellm_success_to_call_event,
     register_litellm_callbacks,
@@ -217,6 +219,48 @@ def test_registered_callback_skips_the_sink_when_run_context_is_not_set():
         litellm.callbacks = []
 
     assert captured == []
+
+
+def test_inside_litellm_dispatch_is_true_only_around_the_real_dispatch():
+    # Regression test for ADR 0001's OpenAI dedup mechanism (openai_adapter.py):
+    # litellm's OpenAI provider path calls
+    # openai_client.chat.completions.with_raw_response.create(...) internally, which
+    # resolves through the same Completions.create the openai adapter patches
+    # (verified empirically -- with_raw_response is a @cached_property that looks up
+    # completions.create dynamically). This flag is how the openai adapter tells that
+    # call apart from a customer's own direct create() call.
+    captured = []
+    original_create = openai.resources.chat.completions.Completions.create
+
+    def probe_create(self, *args, **kwargs):
+        captured.append(inside_litellm_dispatch.get())
+        raise RuntimeError("stand-in for a real HTTP call -- only the flag matters here")
+
+    openai.resources.chat.completions.Completions.create = probe_create
+    try:
+        register_litellm_callbacks(sink=lambda event: None)  # ensures completion() is patched
+        assert inside_litellm_dispatch.get() is False
+
+        try:
+            # litellm caches OpenAI client instances by params (get_cached_openai_client) --
+            # a with_raw_response accessed on a client cached from an earlier test would
+            # keep pointing at *that* test's Completions.create, not this probe. A unique
+            # api_key forces a fresh, uncached client so this test sees its own patch.
+            litellm.completion(
+                model="gpt-4o-mini",
+                api_key="test-key-dispatch-flag-probe",
+                messages=[{"role": "user", "content": "hi"}],
+            )
+        except Exception:
+            pass  # probe_create's RuntimeError propagates through litellm -- expected
+    finally:
+        openai.resources.chat.completions.Completions.create = original_create
+        litellm.success_callback = []
+        litellm.failure_callback = []
+        litellm.callbacks = []
+
+    assert captured == [True]
+    assert inside_litellm_dispatch.get() is False
 
 
 def test_snapshot_context_into_metadata_captures_run_step_node():

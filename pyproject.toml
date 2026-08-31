@@ -45,6 +45,7 @@ dev = [
     "crewai>=1.0",
     "anthropic>=1.2.0",
     "alembic>=1.19.1",
+    "openai>=2.54.0",
 ]
 
 [project.urls]
