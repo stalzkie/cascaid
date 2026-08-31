@@ -1,8 +1,12 @@
 """PRD 5.2 Storage: score history, incident labels, alert history, configuration.
 
-Postgres is the target (TimescaleDB hypertables on score_history/alert_history are
-an ops-level upgrade -- see docker/postgres/init.sql -- not required for the ORM
-layer to work); SQLite is used for fast unit tests against the same schema.
+Postgres is the target; SQLite is used for fast unit tests against the same schema.
+Retention (expiring old score_history/incident_labels/alert_history rows) is a
+built-in periodic-delete job, not TimescaleDB hypertables -- see
+docs/adr/0004-retention-via-builtin-periodic-delete-not-timescale.md for why.
+Schema changes go through Alembic (see docs/Migrations.md and
+docs/adr/0003-adopt-alembic-for-schema-migrations.md); `init_db`/`create_all` below
+stays for fresh installs and tests.
 """
 
 from __future__ import annotations
