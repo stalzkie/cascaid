@@ -43,6 +43,83 @@ Anthropic path has no such dependency. `DetectedStack` gained
 
 Start there next time rather than re-deriving this list from scratch.
 
+## Session status (2026-09-02) — everything from the 2026-08-31 list is done; here's what's actually left
+
+Checked each item on the "not started yet" list above against current code
+rather than assuming it's still open:
+
+- Direct OpenAI SDK instrumentation, coexisting with litellm dedup — **done**
+  (`openai_adapter.py`).
+- Direct Gemini SDK instrumentation — **done** (`gemini_adapter.py`).
+- Generic manual-tracking fallback SDK for undetected frameworks — **done**
+  (`manual_adapter.py`, PR #57, ADR 0002).
+- Chroma/Qdrant/Milvus/LanceDB vector adapters — **done**
+  (`vector_query_adapter.py`).
+- Alembic migrations, retention job, restart policies/healthchecks, CORS,
+  secrets-at-rest, backup/restore docs — **all done** (PRs #53-#55, ADRs
+  0003-0005, `Backup_And_Restore.md`).
+
+Reopened the underlying question this whole doc exists for — "is Cascaid
+usable across the range of real pipelines/tool choices/edge cases a customer
+might actually have" — now that the known bug list is empty. Re-derived the
+gap list from current code (not from memory of this doc), ranked by real
+impact:
+
+1. **AutoGen has no native, auto-detected instrumentation.** The PRD names
+   LangGraph/CrewAI/AutoGen together as the three auto-detected orchestrators
+   (Section 5.2, 6.1) — `stack_detector.py`'s `ORCHESTRATOR_MODULES` only has
+   `langgraph`/`crewai`. An AutoGen pipeline today gets silent zero topology
+   extraction unless the customer already knows to reach for the manual
+   fallback SDK — which works, but breaks the "zero code changes" promise
+   Section 4.1 makes for the frameworks Cascaid claims to support out of the
+   box. Largest remaining gap against the PRD's own stated integration list.
+2. **Model-config/version metadata doesn't exist.** `train.py`'s
+   `torch.save(gnn.state_dict(), out_path)` saves only weights, no
+   hyperparameters (`hidden`/`layers`/`conv`) — confirmed still true, no
+   `--layers`/`--conv` CLI flags exist anywhere. `serve`/`retrain` agree by
+   accident today; the moment a customer's hyperparameters drift from a
+   default, loading fails with a raw PyTorch state-dict shape error instead
+   of a clear message. Contained, well-scoped fix.
+3. **Contextvar-based attribution is process-local** (confirmed —
+   `runtime_context.py` is plain `contextvars.ContextVar`, no cross-process
+   propagation). A pipeline fanning work across Celery/Ray/multiprocessing
+   workers loses attribution partway through. Real gap, but a genuine
+   architecture decision (which backend(s) to support, how to propagate a
+   context across an arbitrary worker boundary) — flagging for a scoping
+   conversation, not starting speculatively, same reasoning the prior session
+   used for the SDK adapters before building them.
+4. **LangSmith/Phoenix trace-export import** — not re-opening this: the code
+   comments (`langfuse_import.py`) already record this as a deliberate MVP
+   scope decision (Langfuse picked as the one representative import path),
+   not an oversight.
+
+**#1 shipped this session.** `autogen_adapter.py` targets `autogen-agentchat`
+(not the `ag2` fork — see `docs/adr/0006-autogen-agentchat-not-ag2.md` for why,
+verified against the real installed package before writing any adapter code).
+Two seams: `BaseGroupChat.__init__`/`run_stream` for static topology + step
+tracking (every team type — RoundRobinGroupChat/SelectorGroupChat/Swarm/
+MagenticOneGroupChat/GraphFlow — shares this base), and
+`ChatAgentContainer.handle_request` for per-agent runtime tracking (the one
+seam every team type dispatches a participant's actual turn through).
+Contextvar propagation across `autogen_core`'s actor-runtime dispatch was
+verified empirically with a standalone repro before trusting it — unlike
+LangGraph's `ainvoke`, CrewAI's `async_execution` thread, or litellm's
+background dispatch, it turned out to propagate correctly by default (plain
+awaited coroutines within one asyncio task), so no CrewAI-style stash-on-object
+workaround was needed. A real, if narrower, footgun did surface: naively
+replacing `ChatAgentContainer.handle_request` silently drops it from
+`autogen_core`'s `@event` handler-discovery (routing metadata lives in the
+function's `__dict__`, re-read fresh per instance) — caught before shipping via
+the same repro, fixed with `functools.wraps`. `stack_detector.py`'s
+`ORCHESTRATOR_MODULES` became a label→module dict (matching
+`VECTOR_DB_MODULES`/`DIRECT_SDK_MODULES`) since `autogen-agentchat` imports as
+`autogen_agentchat`, not `autogen`. Full suite green twice consecutively (335
+passed, 3 skipped both runs).
+
+**Not started this session, pick up next**: #2 (model-config/version
+metadata) and #3 (distributed attribution across Celery/Ray/multiprocessing,
+still a scoping conversation, not a same-session build).
+
 Follow-up to `Client_Readiness_and_YC_Grade_Assessment.md`, narrowed to two
 questions: what stands between today's Cascaid and a customer actually
 running it in production, and how well does it handle pipelines that don't

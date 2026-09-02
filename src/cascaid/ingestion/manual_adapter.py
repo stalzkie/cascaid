@@ -1,16 +1,17 @@
 """Manual instrumentation for frameworks Cascaid can't auto-detect (PRD 4.5, runtime
-seam): AutoGen, hand-rolled orchestration, an in-house model client. See
-docs/adr/0002-manual-tracking-sdk-is-context-manager-shaped.md for why this is a
-context manager, not a decorator or an explicit-argument function call.
+seam): the `ag2` fork of AutoGen (only `autogen-agentchat` is auto-detected -- see
+docs/adr/0006-autogen-agentchat-not-ag2.md), hand-rolled orchestration, an in-house
+model client. See docs/adr/0002-manual-tracking-sdk-is-context-manager-shaped.md for
+why this is a context manager, not a decorator or an explicit-argument function call.
 
 current_run_id is set process-wide by _instrument_bootstrap.py regardless of what's
-auto-detected, but current_step is set *only* by langgraph_adapter.py/crewai_adapter.py
--- for a pipeline with neither (this module's actual target case), nothing else ever
-sets it. observe_call alone would silently no-op every time it's used for exactly the
-case it exists for, unless a step boundary is also marked manually -- see
-cascaid/__init__.py, which re-exports track_step/track_run alongside observe_call so a
-customer marks those boundaries themselves, the same job LangGraph/CrewAI integration
-does automatically for their frameworks.
+auto-detected, but current_step is set *only* by langgraph_adapter.py/crewai_adapter.py/
+autogen_adapter.py -- for a pipeline with none of those (this module's actual target
+case), nothing else ever sets it. observe_call alone would silently no-op every time
+it's used for exactly the case it exists for, unless a step boundary is also marked
+manually -- see cascaid/__init__.py, which re-exports track_step/track_run alongside
+observe_call so a customer marks those boundaries themselves, the same job the
+auto-detected orchestrator integrations do automatically for their frameworks.
 
 Unlike every other adapter in this package, nothing in _instrument_bootstrap.py wires
 this one up -- it's invoked directly by the customer's own code, not auto-patched onto

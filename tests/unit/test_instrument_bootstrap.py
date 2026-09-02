@@ -10,6 +10,7 @@ import pytest
 
 import cascaid._instrument_bootstrap as bootstrap_module
 import cascaid.ingestion.anthropic_adapter as anthropic_adapter
+import cascaid.ingestion.autogen_adapter as autogen_adapter
 import cascaid.ingestion.crewai_adapter as crewai_adapter
 import cascaid.ingestion.gemini_adapter as gemini_adapter
 import cascaid.ingestion.langgraph_adapter as langgraph_adapter
@@ -91,6 +92,31 @@ def test_bootstrap_registers_crewai_instrumentation_when_detected(monkeypatch, t
 
     assert "sink" in captured
     captured["sink"]({"researcher (0)": NodeType.AGENT}, [])
+    written = json.loads(events_path.read_text(encoding="utf-8").splitlines()[0])
+    assert written["type"] == "topology"
+
+
+def test_bootstrap_registers_autogen_instrumentation_when_detected(monkeypatch, tmp_path):
+    events_path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("CASCAID_RUN_ID", "run-1")
+    monkeypatch.setenv("CASCAID_EVENTS_PATH", str(events_path))
+
+    captured = {}
+    monkeypatch.setattr(
+        autogen_adapter, "instrument_autogen", lambda topology_sink: captured.update(sink=topology_sink)
+    )
+
+    from cascaid.ingestion.stack_detector import DetectedStack
+
+    monkeypatch.setattr(
+        "cascaid.ingestion.stack_detector.detect_stack",
+        lambda: DetectedStack(orchestrators=frozenset({"autogen"}), model_gateway=None, vector_dbs=frozenset()),
+    )
+
+    bootstrap_module.bootstrap()
+
+    assert "sink" in captured
+    captured["sink"]({"agent_a": NodeType.AGENT}, [])
     written = json.loads(events_path.read_text(encoding="utf-8").splitlines()[0])
     assert written["type"] == "topology"
 

@@ -52,6 +52,10 @@ def bootstrap() -> None:
         from cascaid.ingestion.crewai_adapter import instrument_crewai
 
         instrument_crewai(topology_sink=_topology_sink(events_path) if events_path else (lambda n, e: None))
+    if "autogen" in stack.orchestrators:
+        from cascaid.ingestion.autogen_adapter import instrument_autogen
+
+        instrument_autogen(topology_sink=_topology_sink(events_path) if events_path else (lambda n, e: None))
 
     if stack.model_gateway == "litellm":
         from cascaid.ingestion.litellm_adapter import register_litellm_callbacks
