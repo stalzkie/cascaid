@@ -1,4 +1,8 @@
-# Cascaid
+<p align="center">
+  <img src="cascaid_logo.png" alt="Cascaid logo" width="200">
+</p>
+
+<h1 align="center">Cascaid</h1>
 
 [![CI](https://github.com/stalzkie/cascaid/actions/workflows/ci.yml/badge.svg)](https://github.com/stalzkie/cascaid/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/cascaid)](https://pypi.org/project/cascaid/)
