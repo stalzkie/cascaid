@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="cascaid_logo.png" alt="Cascaid logo" width="200">
+  <img src="cascaid_logo.png?v=2" alt="Cascaid logo" width="200">
 </p>
 
 <h1 align="center">Cascaid</h1>
