@@ -143,6 +143,37 @@ across Celery/Ray/multiprocessing -- still a scoping conversation (which
 backend(s) to support, how to propagate context across an arbitrary worker
 boundary), not a same-session build.
 
+**Shipped and merged (2026-09-02/09-03): PR #58**, `autogen_adapter.py` +
+`models/model_config.py` above, branch
+`feature/autogen-instrumentation-and-model-config` → `staging`
+(`ed3b0ac`), CI green (docker/frontend/lint/unit/integration/e2e/
+GitGuardian all passed). `master` is intentionally not synced from
+`staging` as part of this -- same cadence gap as every prior PR in this
+log (see git history: `staging` runs well ahead of `master` between
+periodic syncs), not something to "fix" without being asked.
+
+**Pick up here next session:**
+1. **#3 above (distributed attribution) is the only item left on this
+   log's active gap list.** It's a scoping conversation, not a ready-to-build
+   task -- the open questions are (a) which backend(s) actually matter to
+   design for first (Celery? Ray? bare `multiprocessing`? some combination),
+   and (b) how a context should even propagate across an arbitrary worker
+   boundary (there's no one universal mechanism the way `asyncio`'s
+   `copy_context()` was for AutoGen -- Celery workers are separate
+   processes, so this would need either serializing run_id/step/node into
+   the task's own payload and re-entering `track_*` worker-side, or a
+   customer-facing "propagate this explicitly" API, not a transparent
+   monkeypatch like every adapter shipped so far). Don't start building
+   before that conversation happens.
+2. Beyond #3, this doc's "Pipeline compatibility" and "Production
+   readiness" sections above (written 2026-08-30) are now fully resolved --
+   re-derive any *new* gap list from current code before trusting old
+   numbered items there, the same check this session opened with.
+3. `docs/MVP_Accuracy_and_Product_Roadmap.md`'s UI-plan section (run picker
+   + live refresh, then auth, then Grafana/MCP surfaces) hasn't been
+   touched since 2026-08-28 and is a live alternate direction if pipeline-
+   compatibility work pauses here.
+
 Follow-up to `Client_Readiness_and_YC_Grade_Assessment.md`, narrowed to two
 questions: what stands between today's Cascaid and a customer actually
 running it in production, and how well does it handle pipelines that don't
