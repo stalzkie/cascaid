@@ -116,9 +116,32 @@ the same repro, fixed with `functools.wraps`. `stack_detector.py`'s
 `autogen_agentchat`, not `autogen`. Full suite green twice consecutively (335
 passed, 3 skipped both runs).
 
-**Not started this session, pick up next**: #2 (model-config/version
-metadata) and #3 (distributed attribution across Celery/Ray/multiprocessing,
-still a scoping conversation, not a same-session build).
+**#2 shipped too.** New `models/model_config.py`: a `ModelConfig` sidecar
+(`in_dim`/`edge_dim`/`hidden`/`layers`/`conv`) saved as JSON next to the `.pt`
+weights (`out_path.with_suffix(".config.json")`) -- the same sibling-file
+convention `train.py` already used for `.drift_reference.json`, not a change
+to the weights file's own format. `cascaid.train`/`cascaid.retrain` gained
+`--hidden`/`--layers`/`--conv` CLI flags (train.py didn't have `--hidden` at
+all before this; `--layers`/`--conv` existed nowhere) and now write the
+sidecar alongside every model they save. `cascaid.serve`'s
+`--hidden`/`--layers`/`--conv` default to unset rather than baked-in values:
+`serving/risk.py`'s `load_model()` reads the sidecar automatically when
+present, so a model trained with non-default hyperparameters (exactly what
+`scripts/gnn_experiment.py`'s own accuracy sweeps produce) now loads with
+zero flags, and an explicit flag that actually conflicts with the sidecar
+raises a clear `ValueError` naming both values instead of failing deep inside
+`load_state_dict` with a raw PyTorch tensor-shape mismatch. No sidecar (a
+`.pt` predating this feature) falls back to today's exact defaults --
+backward compatible, no forced migration. New e2e regression test proves the
+real scenario end to end: train with `--hidden 16 --layers 3 --conv gat`,
+serve with zero override flags, confirm it actually serves risk scores rather
+than crashing. Full suite green twice consecutively (343 passed, 3 skipped
+both runs, up from 335 -- 8 new tests).
+
+**Not started this session, pick up next**: #3, distributed attribution
+across Celery/Ray/multiprocessing -- still a scoping conversation (which
+backend(s) to support, how to propagate context across an arbitrary worker
+boundary), not a same-session build.
 
 Follow-up to `Client_Readiness_and_YC_Grade_Assessment.md`, narrowed to two
 questions: what stands between today's Cascaid and a customer actually

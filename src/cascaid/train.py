@@ -1,11 +1,18 @@
 """End-to-end train/eval CLI (PRD Phase 1 steps 3-5):
 
     python -m cascaid.train [--data data/runs] [--epochs 30] [--out models/pretrained_base.pt]
+        [--hidden 32] [--layers 2] [--conv gine]
 
 Builds topology-graph snapshots from the demo pipeline's raw event logs, trains the
 GATConv/GINEConv GNN against a flattened XGBoost baseline and a shuffled-adjacency
 ablation, reports PR-AUC / lead-time accuracy for all three, and saves the trained GNN
 as the pretrained base model (PRD 4.3).
+
+--hidden/--layers/--conv are also recorded in a sidecar .config.json next to --out
+(see models/model_config.py) so `cascaid serve`/`cascaid retrain` can load this model
+without needing to already know its architecture -- see
+docs/Production_Readiness_and_Pipeline_Compatibility_Assessment.md for the gap this
+closes.
 """
 
 from __future__ import annotations
@@ -26,6 +33,7 @@ from cascaid.ingestion.topology import build_static_graph, load_manifest, load_r
 from cascaid.metrics import RunTrace, lead_time_accuracy, pr_auc
 from cascaid.models.baseline import predict_baseline, train_baseline
 from cascaid.models.gnn import CascadeGNN
+from cascaid.models.model_config import ModelConfig, save_model_config
 from cascaid.serving.drift import compute_reference, save_reference
 
 IN_DIM = NUM_FEATURES + len(NODE_TYPE_ORDER)
@@ -72,8 +80,10 @@ def split_run_ids(manifest: list[dict], val_frac: float = 0.2, seed: int = 0) ->
     return train_ids, val_ids
 
 
-def train_gnn(train_data: list, epochs: int, hidden: int = 32, lr: float = 1e-3) -> CascadeGNN:
-    model = CascadeGNN(in_dim=IN_DIM, edge_dim=NUM_FEATURES, hidden=hidden)
+def train_gnn(
+    train_data: list, epochs: int, hidden: int = 32, layers: int = 2, conv: str = "gine", lr: float = 1e-3
+) -> CascadeGNN:
+    model = CascadeGNN(in_dim=IN_DIM, edge_dim=NUM_FEATURES, hidden=hidden, layers=layers, conv=conv)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
     loader = DataLoader(train_data, batch_size=32, shuffle=True)
 
@@ -158,6 +168,9 @@ def main():
     parser.add_argument("--epochs", type=int, default=30)
     parser.add_argument("--out", type=str, default="models/pretrained_base.pt")
     parser.add_argument("--benchmarks", type=str, default="benchmarks")
+    parser.add_argument("--hidden", type=int, default=32)
+    parser.add_argument("--layers", type=int, default=2)
+    parser.add_argument("--conv", type=str, default="gine", choices=["gine", "gat"])
     parser.add_argument(
         "--seed",
         type=int,
@@ -183,11 +196,11 @@ def main():
     print(f"Train snapshots: {len(train_data)}  Val snapshots: {len(val_data)}")
 
     print("\n[1/3] Training GNN (real adjacency)...")
-    gnn = train_gnn(train_data, epochs=args.epochs)
+    gnn = train_gnn(train_data, epochs=args.epochs, hidden=args.hidden, layers=args.layers, conv=args.conv)
     y_true_gnn, y_score_gnn, node_scores_gnn = eval_gnn(gnn, val_data)
 
     print("\n[2/3] Training GNN (shuffled-adjacency ablation)...")
-    gnn_shuf = train_gnn(shuf_train_data, epochs=args.epochs)
+    gnn_shuf = train_gnn(shuf_train_data, epochs=args.epochs, hidden=args.hidden, layers=args.layers, conv=args.conv)
     y_true_shuf, y_score_shuf, node_scores_shuf = eval_gnn(gnn_shuf, shuf_val_data)
 
     print("\n[3/3] Training flattened XGBoost baseline...")
@@ -228,6 +241,10 @@ def main():
     out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(gnn.state_dict(), out_path)
+    save_model_config(
+        ModelConfig(in_dim=IN_DIM, edge_dim=NUM_FEATURES, hidden=args.hidden, layers=args.layers, conv=args.conv),
+        out_path,
+    )
     print(f"\nSaved pretrained GNN to {out_path}")
 
     # Reference distribution for drift detection (PRD 7) -- computed once here so
