@@ -8,6 +8,7 @@ propagation.
 
     python -m cascaid.retrain --database-url ... --store data/graph_store \
         --out models/pretrained_base.pt [--min-pr-auc 0.7] [--epochs 60]
+        [--hidden 32] [--layers 2] [--conv gine]
 
 Only overwrites --out if the newly trained model's PR-AUC on a held-out
 split of the real runs is at or above --min-pr-auc -- a small, noisy batch of
@@ -28,11 +29,15 @@ import torch
 
 from cascaid.ingestion.graph_store import list_runs, list_snapshots, load_snapshot
 from cascaid.ingestion.labeling import label_step_from_incidents
+from cascaid.ingestion.schema import NODE_TYPE_ORDER, NUM_FEATURES
 from cascaid.metrics import brier_score, expected_calibration_error, pr_auc
 from cascaid.models.gnn import CascadeGNN
+from cascaid.models.model_config import ModelConfig, save_model_config
 from cascaid.storage.db import get_engine, make_session_factory
 from cascaid.storage.repository import get_incidents, init_db
 from cascaid.train import eval_gnn, split_run_ids, train_gnn
+
+IN_DIM = NUM_FEATURES + len(NODE_TYPE_ORDER)
 
 
 def build_real_dataset(
@@ -55,6 +60,9 @@ def retrain(
     incidents_by_run: dict[str, list[tuple[str, datetime]]],
     epochs: int = 60,
     seed: int = 0,
+    hidden: int = 32,
+    layers: int = 2,
+    conv: str = "gine",
 ) -> tuple[CascadeGNN, dict]:
     run_ids = list_runs(store_dir)
     if not run_ids:
@@ -69,7 +77,7 @@ def retrain(
     val_data = [d for d in data_list if d.run_id in val_ids]
 
     torch.manual_seed(seed)
-    model = train_gnn(train_data, epochs=epochs)
+    model = train_gnn(train_data, epochs=epochs, hidden=hidden, layers=layers, conv=conv)
     y_true, y_score, _ = eval_gnn(model, val_data)
 
     metrics = {
@@ -99,6 +107,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=60)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--min-pr-auc", type=float, default=0.7)
+    parser.add_argument("--hidden", type=int, default=32)
+    parser.add_argument("--layers", type=int, default=2)
+    parser.add_argument("--conv", type=str, default="gine", choices=["gine", "gat"])
     return parser.parse_args(argv)
 
 
@@ -122,7 +133,15 @@ def main():
             for run_id in run_ids
         }
 
-    model, metrics = retrain(args.store, incidents_by_run, epochs=args.epochs, seed=args.seed)
+    model, metrics = retrain(
+        args.store,
+        incidents_by_run,
+        epochs=args.epochs,
+        seed=args.seed,
+        hidden=args.hidden,
+        layers=args.layers,
+        conv=args.conv,
+    )
 
     print(
         f"Real-data retrain: PR-AUC={metrics['pr_auc']:.3f}  Brier={metrics['brier']:.3f}  "
@@ -137,6 +156,10 @@ def main():
     tmp_path = out_path.with_suffix(out_path.suffix + ".tmp")
     torch.save(model.state_dict(), tmp_path)
     tmp_path.replace(out_path)
+    save_model_config(
+        ModelConfig(in_dim=IN_DIM, edge_dim=NUM_FEATURES, hidden=args.hidden, layers=args.layers, conv=args.conv),
+        out_path,
+    )
     print(f"Swapped in the newly retrained model at {out_path}")
 
 

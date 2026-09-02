@@ -1,13 +1,14 @@
 """Cascaid's customer-facing public API: manual instrumentation for frameworks Cascaid
-doesn't auto-detect (AutoGen, hand-rolled orchestration, an in-house model client). See
-docs/adr/0002-manual-tracking-sdk-is-context-manager-shaped.md.
+doesn't auto-detect (the `ag2` fork of AutoGen, hand-rolled orchestration, an in-house
+model client). See docs/adr/0002-manual-tracking-sdk-is-context-manager-shaped.md.
 
-Everything auto-detected (LangGraph, CrewAI, litellm, direct Anthropic/OpenAI/Gemini
-SDKs, vector DBs) is wired up automatically by `cascaid run` -- nothing in this module
-is needed for those. This is only for the gap: a pipeline shape Cascaid can't see into
-on its own.
+Everything auto-detected (LangGraph, CrewAI, AutoGen via `autogen-agentchat` -- see
+docs/adr/0006-autogen-agentchat-not-ag2.md, litellm, direct Anthropic/OpenAI/Gemini SDKs,
+vector DBs) is wired up automatically by `cascaid run` -- nothing in this module is
+needed for those. This is only for the gap: a pipeline shape Cascaid can't see into on
+its own.
 
-Usage (hand-rolled orchestration, e.g. a raw AutoGen pipeline)::
+Usage (hand-rolled orchestration, e.g. a raw custom agent loop)::
 
     import cascaid
 

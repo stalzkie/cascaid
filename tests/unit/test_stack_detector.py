@@ -20,6 +20,19 @@ def test_detects_both_orchestrators_independently_when_both_are_available():
     assert stack.orchestrators == frozenset({"langgraph", "crewai"})
 
 
+def test_detects_autogen_orchestrator_when_available():
+    # autogen-agentchat's importable package is `autogen_agentchat`, not literally
+    # "autogen" -- that name is the community `ag2` fork instead (see
+    # docs/adr/0006-autogen-agentchat-not-ag2.md).
+    stack = detect_stack(is_available=lambda module: module == "autogen_agentchat")
+    assert stack.orchestrators == frozenset({"autogen"})
+
+
+def test_detects_all_three_orchestrators_independently_when_all_are_available():
+    stack = detect_stack(is_available=lambda module: module in ("langgraph", "crewai", "autogen_agentchat"))
+    assert stack.orchestrators == frozenset({"langgraph", "crewai", "autogen"})
+
+
 def test_detects_no_orchestrator_when_neither_is_available():
     stack = detect_stack(is_available=lambda module: False)
     assert stack.orchestrators == frozenset()

@@ -15,7 +15,13 @@ import importlib.util
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-ORCHESTRATOR_MODULES = ["langgraph", "crewai"]
+# Maps the vendor label used in DetectedStack.orchestrators/_instrument_bootstrap.py to
+# the actual importable module, same reasoning as VECTOR_DB_MODULES/DIRECT_SDK_MODULES
+# below: langgraph/crewai's import name happens to coincide with their label, but
+# autogen-agentchat's does not -- it imports as `autogen_agentchat`, not `autogen` (which
+# is the community `ag2` fork's import name instead, a different package -- see
+# docs/adr/0006-autogen-agentchat-not-ag2.md).
+ORCHESTRATOR_MODULES = {"langgraph": "langgraph", "crewai": "crewai", "autogen": "autogen_agentchat"}
 # Vector DBs, detected independently like ORCHESTRATOR_MODULES/DIRECT_SDK_MODULES, not
 # exclusively via next() as this used to be: a pipeline can genuinely use two vector DBs
 # at once (e.g. Pinecone in prod, Chroma for local dev/testing in the same codebase) --
@@ -58,7 +64,7 @@ class DetectedStack:
 
 
 def detect_stack(is_available: Callable[[str], bool] = _module_is_available) -> DetectedStack:
-    orchestrators = frozenset(m for m in ORCHESTRATOR_MODULES if is_available(m))
+    orchestrators = frozenset(label for label, module in ORCHESTRATOR_MODULES.items() if is_available(module))
     model_gateway = "litellm" if is_available("litellm") else None
     vector_dbs = frozenset(label for label, module in VECTOR_DB_MODULES.items() if is_available(module))
     direct_sdks = frozenset(label for label, module in DIRECT_SDK_MODULES.items() if is_available(module))
