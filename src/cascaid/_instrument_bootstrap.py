@@ -77,6 +77,11 @@ def bootstrap() -> None:
 
         instrument_gemini(sink=_file_sink(events_path) if events_path else (lambda event: None))
 
+    if "celery" in stack.distributed_backends:
+        from cascaid.ingestion.celery_adapter import instrument_celery
+
+        instrument_celery()
+
     # pgvector is intentionally excluded: it's not a distinct client library (a
     # Postgres extension invoked through psycopg/SQLAlchemy), so reliably
     # detecting "this query is a vector similarity search" without false

@@ -152,27 +152,75 @@ GitGuardian all passed). `master` is intentionally not synced from
 log (see git history: `staging` runs well ahead of `master` between
 periodic syncs), not something to "fix" without being asked.
 
+## Session status (2026-09-11) — #3 scoped and shipped: Celery attribution
+
+The scoping conversation for #3 happened. Backend: **Celery first** (the
+deployment shape Cascaid's actual customers -- LangGraph/CrewAI/AutoGen
+pipelines behind a task queue in an ordinary web-shaped stack -- are most
+likely to already have; Ray targets ML-cluster-scale compute, a different
+shape, and bare `multiprocessing` has no task-queue semantics to lean on).
+Propagation: **auto-serialize into the task payload**, not a
+customer-facing API, to keep the "zero code changes" promise every other
+adapter has kept so far. Full reasoning, including two real footguns
+caught before trusting the design (`task_always_eager` bypasses the
+publish signal entirely; `Signal.connect()` defaults to `weak=True` and
+silently drops locally-scoped closures after GC) in
+`docs/adr/0007-celery-first-for-distributed-attribution.md`.
+
+Verified against a real cross-process worker before writing the adapter,
+not just eager-mode (which turned out to prove nothing -- see the ADR):
+`filesystem://` broker transport + an actual `celery worker` subprocess,
+publisher and worker confirmed running as different PIDs, headers written
+in the publisher process correctly recovered via `task.request.headers`
+in the worker process.
+
+**Shipped:** `celery_adapter.py`'s `instrument_celery()` -- connects to
+`before_task_publish`/`task_prerun`/`task_postrun` to carry
+run_id/step/node across the worker boundary. Unlike every other adapter it
+produces no `CallEvent`s itself; it only keeps the contextvars correct so
+whichever adapter runs *inside* the task body attributes correctly.
+`stack_detector.py` gained `distributed_backends: frozenset[str]`
+(`DISTRIBUTED_BACKEND_MODULES = {"celery": "celery"}`, detected
+independently like every other category). Wired into
+`_instrument_bootstrap.py` unconditionally when `"celery" in
+stack.distributed_backends`. 20 new tests (11 `celery_adapter`, 2
+`stack_detector`, 2 `_instrument_bootstrap`, plus lint/format clean); unit
++ integration suites green twice consecutively (332 passed, 3 skipped
+both runs). Full suite (including e2e) hit one failure --
+`test_run_instruments_a_real_subprocess_with_no_code_changes` timing out
+at 30s -- confirmed via `git stash` to be a **pre-existing flake on this
+machine**, reproduces identically with none of this session's changes
+applied; not caused by this work, not investigated further this session.
+
+Scope limit stated in the ADR, not silently assumed: verified for
+prefork/solo/thread-based worker pools only. Greenlet-based pools
+(eventlet/gevent) weren't verified -- contextvars isolation across
+greenlets sharing one OS thread depends on the greenlet library's own
+context-copying support, outside this adapter's control.
+
+Not committed/pushed yet -- sitting on local branch `rebase-adapters`
+(currently untracked against any matching remote branch; last synced from
+`origin/feature/openai-gemini-vector-adapters`, 8 commits behind this
+branch's tip before this session's changes). Needs a proper feature
+branch + PR before merging to `staging`, same flow as every prior item in
+this log.
+
 **Pick up here next session:**
-1. **#3 above (distributed attribution) is the only item left on this
-   log's active gap list.** It's a scoping conversation, not a ready-to-build
-   task -- the open questions are (a) which backend(s) actually matter to
-   design for first (Celery? Ray? bare `multiprocessing`? some combination),
-   and (b) how a context should even propagate across an arbitrary worker
-   boundary (there's no one universal mechanism the way `asyncio`'s
-   `copy_context()` was for AutoGen -- Celery workers are separate
-   processes, so this would need either serializing run_id/step/node into
-   the task's own payload and re-entering `track_*` worker-side, or a
-   customer-facing "propagate this explicitly" API, not a transparent
-   monkeypatch like every adapter shipped so far). Don't start building
-   before that conversation happens.
-2. Beyond #3, this doc's "Pipeline compatibility" and "Production
-   readiness" sections above (written 2026-08-30) are now fully resolved --
-   re-derive any *new* gap list from current code before trusting old
-   numbered items there, the same check this session opened with.
+1. Ray/`multiprocessing` distributed-attribution support -- deferred, not
+   ruled out, per the ADR. Only worth it if a customer actually needs one.
+2. This doc's "Pipeline compatibility" and "Production readiness" sections
+   above (written 2026-08-30) are still fully resolved as of the
+   2026-09-02 check -- re-derive any *new* gap list from current code
+   before trusting old numbered items there if this thread is picked back
+   up, the same check every session in this log has opened with.
 3. `docs/MVP_Accuracy_and_Product_Roadmap.md`'s UI-plan section (run picker
    + live refresh, then auth, then Grafana/MCP surfaces) hasn't been
    touched since 2026-08-28 and is a live alternate direction if pipeline-
    compatibility work pauses here.
+4. The pre-existing e2e flake noted above (`test_run_instrumented.py`,
+   30s subprocess timeout) hasn't been diagnosed -- worth a look if it
+   keeps recurring, since a flaky e2e test undermines the "full suite
+   green twice" confidence check this whole log relies on.
 
 Follow-up to `Client_Readiness_and_YC_Grade_Assessment.md`, narrowed to two
 questions: what stands between today's Cascaid and a customer actually

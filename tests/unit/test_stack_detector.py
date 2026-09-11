@@ -125,3 +125,13 @@ def test_detects_gemini_direct_sdk_when_available():
     # the friendly vendor label.
     stack = detect_stack(is_available=lambda module: module == "google.genai")
     assert stack.direct_sdks == frozenset({"gemini"})
+
+
+def test_detects_celery_distributed_backend_when_available():
+    stack = detect_stack(is_available=lambda module: module == "celery")
+    assert stack.distributed_backends == frozenset({"celery"})
+
+
+def test_detects_no_distributed_backend_when_none_available():
+    stack = detect_stack(is_available=lambda module: False)
+    assert stack.distributed_backends == frozenset()

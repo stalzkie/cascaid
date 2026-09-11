@@ -52,6 +52,7 @@ dev = [
     "pymilvus>=3.0.1",
     "lancedb>=0.37.1",
     "autogen-agentchat>=0.7.5",
+    "celery>=5.4",
 ]
 
 [project.urls]
