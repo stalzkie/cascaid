@@ -49,6 +49,11 @@ VECTOR_DB_MODULES = {
 # anthropic/openai, but google-genai's importable package is `google.genai`, not
 # literally "gemini" (verified via introspection, see gemini_adapter.py).
 DIRECT_SDK_MODULES = {"anthropic": "anthropic", "openai": "openai", "gemini": "google.genai"}
+# Distributed task-queue backends a pipeline might fan work out to -- detected
+# independently, its own category rather than folded into orchestrators/model_gateway,
+# since Celery is neither: it's the process boundary attribution needs to cross, not a
+# thing that itself calls models (see docs/adr/0007-celery-first-for-distributed-attribution.md).
+DISTRIBUTED_BACKEND_MODULES = {"celery": "celery"}
 
 
 def _module_is_available(module: str) -> bool:
@@ -61,6 +66,7 @@ class DetectedStack:
     model_gateway: str | None = None
     vector_dbs: frozenset[str] = field(default_factory=frozenset)
     direct_sdks: frozenset[str] = field(default_factory=frozenset)
+    distributed_backends: frozenset[str] = field(default_factory=frozenset)
 
 
 def detect_stack(is_available: Callable[[str], bool] = _module_is_available) -> DetectedStack:
@@ -68,6 +74,13 @@ def detect_stack(is_available: Callable[[str], bool] = _module_is_available) -> 
     model_gateway = "litellm" if is_available("litellm") else None
     vector_dbs = frozenset(label for label, module in VECTOR_DB_MODULES.items() if is_available(module))
     direct_sdks = frozenset(label for label, module in DIRECT_SDK_MODULES.items() if is_available(module))
+    distributed_backends = frozenset(
+        label for label, module in DISTRIBUTED_BACKEND_MODULES.items() if is_available(module)
+    )
     return DetectedStack(
-        orchestrators=orchestrators, model_gateway=model_gateway, vector_dbs=vector_dbs, direct_sdks=direct_sdks
+        orchestrators=orchestrators,
+        model_gateway=model_gateway,
+        vector_dbs=vector_dbs,
+        direct_sdks=direct_sdks,
+        distributed_backends=distributed_backends,
     )
