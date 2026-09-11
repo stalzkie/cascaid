@@ -198,25 +198,92 @@ prefork/solo/thread-based worker pools only. Greenlet-based pools
 greenlets sharing one OS thread depends on the greenlet library's own
 context-copying support, outside this adapter's control.
 
-Not committed/pushed yet -- sitting on local branch `rebase-adapters`
-(currently untracked against any matching remote branch; last synced from
-`origin/feature/openai-gemini-vector-adapters`, 8 commits behind this
-branch's tip before this session's changes). Needs a proper feature
-branch + PR before merging to `staging`, same flow as every prior item in
-this log.
+**Shipped and merged same session:** `feature/celery-distributed-attribution`
+→ `staging` (PR #60, `8813125`), CI green including e2e (confirming the
+30s subprocess-timeout failure above really was local-machine-only, not a
+real regression). Local repo also got housekept afterward: the redundant
+`rebase-adapters` branch, four stale agent worktrees (verified clean, no
+uncommitted work, their branches' content already subsumed into
+`staging`), and ~14 already-merged local+remote branches were all
+deleted. One find worth flagging: `stalzkie-patch-1` (a never-merged
+one-line `SECURITY.md` email fix) had already lost its remote branch
+before this session touched anything -- recovered as PR #61
+(`docs/security-contact-email`), not yet merged as of this note.
+
+## Session status (2026-09-11, same day continued) — Ray shipped too (ADR 0008)
+
+Picked "Ray/multiprocessing" back up per the note above. Scoped first
+(same pattern as Celery): **Ray next, not multiprocessing** -- Ray has
+real prior art to model the design after (its own built-in OpenTelemetry
+tracing integration solves the identical cross-process-context-propagation
+problem), where bare `multiprocessing` has none and is `spawn`-only on
+Windows (zero implicit sharing). Verified Ray actually runs on this
+Windows dev machine before investing further.
+
+Two real footguns caught empirically before trusting the design, both
+worse than anything Celery's pass hit -- full detail in
+`docs/adr/0008-ray-distributed-attribution.md`:
+1. Wrapping *any* Ray task breaks cloudpickle if the wrapper's own closure
+   references a bare `ContextVar` object as a global (cloudpickle inlines
+   a closure's referenced globals by value; `ContextVar` has no pickle
+   support) -- confirmed with a completely unrelated task (`add(a, b)`,
+   no ContextVar reference in its own body) failing to pickle the moment
+   it got wrapped. Fixed by referencing the *module*
+   (`rc.current_run_id.set(...)`), not the bare name.
+2. `functools.wraps()` sets `__wrapped__`, which Ray's own argument
+   validation follows back to the *original* function's signature --
+   the injected hidden kwarg gets rejected as "unexpected" unless the
+   original function's `__signature__` is patched explicitly first
+   (mirroring Ray's own `_add_param_to_signature`).
+
+**Shipped:** `ray_adapter.py`'s `instrument_ray()`, patches
+`RemoteFunction._remote()` (no separate signal system exists for Ray,
+unlike Celery -- one method does both the lazy wrap and the per-call
+context injection). Same no-`CallEvent`-of-its-own shape as
+`celery_adapter.py`. `stack_detector.py`'s `DISTRIBUTED_BACKEND_MODULES`
+gained `"ray": "ray"`. Scope limit stated in the ADR: `@ray.remote`
+functions only, not Actors (`@ray.remote class ...`) -- a materially
+different case Ray's own tracing integration also handles separately.
+**Also stated plainly, not verified:** whether a real Ray worker process
+spawned by `cascaid run` actually re-runs cascaid's own bootstrap
+(inherits the `sitecustomize.py`-prepended `PYTHONPATH`) -- this session's
+tests instrument the test process directly, same pattern every other
+adapter's tests use; no end-to-end `cascaid run` against a real
+multi-process Ray cluster was run.
+
+10 new tests (5 `ray_adapter` against a real local Ray cluster, 3
+`stack_detector`, 4 `_instrument_bootstrap`); `ruff check`/`format` clean;
+unit+integration green twice consecutively (342 passed, 3 skipped both
+runs).
+
+**Not committed/pushed yet as of this note** -- sitting uncommitted on
+`staging` locally, same "needs a feature branch + PR" step as every prior
+item in this log.
 
 **Pick up here next session:**
-1. Ray/`multiprocessing` distributed-attribution support -- deferred, not
-   ruled out, per the ADR. Only worth it if a customer actually needs one.
-2. This doc's "Pipeline compatibility" and "Production readiness" sections
+1. Land the Ray work: feature branch + PR into `staging`, same flow as
+   Celery.
+2. Merge PR #61 (`docs/security-contact-email`) once its CI is green, if
+   not already done.
+3. The Ray-worker-bootstrap-inheritance question flagged above (does
+   `cascaid run`'s `sitecustomize.py` PYTHONPATH prepend actually reach a
+   spawned Ray worker process?) -- unverified, worth a real end-to-end
+   check before calling Ray attribution production-ready rather than
+   "verified at the contextvar-propagation layer only."
+4. Bare `multiprocessing` distributed-attribution support -- still
+   deferred, not ruled out. Only worth it if a customer actually needs it.
+5. This doc's "Pipeline compatibility" and "Production readiness" sections
    above (written 2026-08-30) are still fully resolved as of the
    2026-09-02 check -- re-derive any *new* gap list from current code
    before trusting old numbered items there if this thread is picked back
    up, the same check every session in this log has opened with.
-3. `docs/MVP_Accuracy_and_Product_Roadmap.md`'s UI-plan section (run picker
+6. `docs/MVP_Accuracy_and_Product_Roadmap.md`'s UI-plan section (run picker
    + live refresh, then auth, then Grafana/MCP surfaces) hasn't been
    touched since 2026-08-28 and is a live alternate direction if pipeline-
    compatibility work pauses here.
+7. The pre-existing e2e flake (`test_run_instrumented.py`, 30s subprocess
+   timeout) is confirmed local-machine-only (CI ran it green on PR #60) --
+   deprioritized, not removed from this list in case it recurs elsewhere.
 4. The pre-existing e2e flake noted above (`test_run_instrumented.py`,
    30s subprocess timeout) hasn't been diagnosed -- worth a look if it
    keeps recurring, since a flaky e2e test undermines the "full suite

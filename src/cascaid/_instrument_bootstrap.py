@@ -82,6 +82,11 @@ def bootstrap() -> None:
 
         instrument_celery()
 
+    if "ray" in stack.distributed_backends:
+        from cascaid.ingestion.ray_adapter import instrument_ray
+
+        instrument_ray()
+
     # pgvector is intentionally excluded: it's not a distinct client library (a
     # Postgres extension invoked through psycopg/SQLAlchemy), so reliably
     # detecting "this query is a vector similarity search" without false

@@ -53,6 +53,7 @@ dev = [
     "lancedb>=0.37.1",
     "autogen-agentchat>=0.7.5",
     "celery>=5.4",
+    "ray>=2.58.0",
 ]
 
 [project.urls]
