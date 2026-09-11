@@ -25,7 +25,7 @@ Instead, report privately using one of:
 - [GitHub Security Advisories](https://github.com/stalzkie/cascaid/security/advisories/new)
   for this repo (preferred -- keeps the report and any discussion private
   until a fix ships).
-- Email fantasy.grimdark@gmail.com with details and, if possible, steps to
+- Email dstalingrad@gmail.com with details and, if possible, steps to
   reproduce.
 
 Please include:
