@@ -49,11 +49,13 @@ VECTOR_DB_MODULES = {
 # anthropic/openai, but google-genai's importable package is `google.genai`, not
 # literally "gemini" (verified via introspection, see gemini_adapter.py).
 DIRECT_SDK_MODULES = {"anthropic": "anthropic", "openai": "openai", "gemini": "google.genai"}
-# Distributed task-queue backends a pipeline might fan work out to -- detected
+# Distributed task-queue/compute backends a pipeline might fan work out to -- detected
 # independently, its own category rather than folded into orchestrators/model_gateway,
-# since Celery is neither: it's the process boundary attribution needs to cross, not a
-# thing that itself calls models (see docs/adr/0007-celery-first-for-distributed-attribution.md).
-DISTRIBUTED_BACKEND_MODULES = {"celery": "celery"}
+# since these are neither: it's the process boundary attribution needs to cross, not a
+# thing that itself calls models (see
+# docs/adr/0007-celery-first-for-distributed-attribution.md and
+# docs/adr/0008-ray-distributed-attribution.md).
+DISTRIBUTED_BACKEND_MODULES = {"celery": "celery", "ray": "ray"}
 
 
 def _module_is_available(module: str) -> bool:

@@ -132,6 +132,16 @@ def test_detects_celery_distributed_backend_when_available():
     assert stack.distributed_backends == frozenset({"celery"})
 
 
+def test_detects_ray_distributed_backend_when_available():
+    stack = detect_stack(is_available=lambda module: module == "ray")
+    assert stack.distributed_backends == frozenset({"ray"})
+
+
+def test_detects_celery_and_ray_distributed_backends_independently():
+    stack = detect_stack(is_available=lambda module: module in ("celery", "ray"))
+    assert stack.distributed_backends == frozenset({"celery", "ray"})
+
+
 def test_detects_no_distributed_backend_when_none_available():
     stack = detect_stack(is_available=lambda module: False)
     assert stack.distributed_backends == frozenset()

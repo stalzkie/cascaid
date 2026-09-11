@@ -17,6 +17,7 @@ import cascaid.ingestion.gemini_adapter as gemini_adapter
 import cascaid.ingestion.langgraph_adapter as langgraph_adapter
 import cascaid.ingestion.litellm_adapter as litellm_adapter
 import cascaid.ingestion.openai_adapter as openai_adapter
+import cascaid.ingestion.ray_adapter as ray_adapter
 import cascaid.ingestion.vector_query_adapter as vector_query_adapter
 from cascaid.ingestion.runtime_context import current_run_id
 from cascaid.ingestion.schema import NodeType
@@ -165,6 +166,78 @@ def test_bootstrap_does_not_register_celery_instrumentation_when_not_detected(mo
     bootstrap_module.bootstrap()
 
     assert "ran" not in called
+
+
+def test_bootstrap_registers_ray_instrumentation_when_detected(monkeypatch, tmp_path):
+    events_path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("CASCAID_RUN_ID", "run-1")
+    monkeypatch.setenv("CASCAID_EVENTS_PATH", str(events_path))
+
+    called = {}
+    monkeypatch.setattr(ray_adapter, "instrument_ray", lambda: called.update(ran=True))
+
+    from cascaid.ingestion.stack_detector import DetectedStack
+
+    monkeypatch.setattr(
+        "cascaid.ingestion.stack_detector.detect_stack",
+        lambda: DetectedStack(
+            orchestrators=frozenset(),
+            model_gateway=None,
+            vector_dbs=frozenset(),
+            distributed_backends=frozenset({"ray"}),
+        ),
+    )
+
+    bootstrap_module.bootstrap()
+
+    assert called.get("ran") is True
+
+
+def test_bootstrap_does_not_register_ray_instrumentation_when_not_detected(monkeypatch, tmp_path):
+    events_path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("CASCAID_RUN_ID", "run-1")
+    monkeypatch.setenv("CASCAID_EVENTS_PATH", str(events_path))
+
+    called = {}
+    monkeypatch.setattr(ray_adapter, "instrument_ray", lambda: called.update(ran=True))
+
+    from cascaid.ingestion.stack_detector import DetectedStack
+
+    monkeypatch.setattr(
+        "cascaid.ingestion.stack_detector.detect_stack",
+        lambda: DetectedStack(orchestrators=frozenset(), model_gateway=None, vector_dbs=frozenset()),
+    )
+
+    bootstrap_module.bootstrap()
+
+    assert "ran" not in called
+
+
+def test_bootstrap_registers_celery_and_ray_independently_when_both_are_available(monkeypatch, tmp_path):
+    events_path = tmp_path / "events.jsonl"
+    monkeypatch.setenv("CASCAID_RUN_ID", "run-1")
+    monkeypatch.setenv("CASCAID_EVENTS_PATH", str(events_path))
+
+    called = {}
+    monkeypatch.setattr(celery_adapter, "instrument_celery", lambda: called.update(celery=True))
+    monkeypatch.setattr(ray_adapter, "instrument_ray", lambda: called.update(ray=True))
+
+    from cascaid.ingestion.stack_detector import DetectedStack
+
+    monkeypatch.setattr(
+        "cascaid.ingestion.stack_detector.detect_stack",
+        lambda: DetectedStack(
+            orchestrators=frozenset(),
+            model_gateway=None,
+            vector_dbs=frozenset(),
+            distributed_backends=frozenset({"celery", "ray"}),
+        ),
+    )
+
+    bootstrap_module.bootstrap()
+
+    assert called.get("celery") is True
+    assert called.get("ray") is True
 
 
 def test_bootstrap_registers_both_orchestrators_when_both_are_available(monkeypatch, tmp_path):
